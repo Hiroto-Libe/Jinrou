@@ -52,3 +52,19 @@ class GameMember(Base):
     order_no = Column(Integer, nullable=False, default=0)
 
     game = relationship("Game", back_populates="members")
+
+
+class WolfVote(Base):
+    __tablename__ = "wolf_votes"
+
+    id = Column(String, primary_key=True)
+    game_id = Column(String, ForeignKey("games.id"), nullable=False)
+    night_no = Column(Integer, nullable=False)
+
+    wolf_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
+    target_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
+
+    priority_level = Column(Integer, nullable=False)  # 1,2,3
+    points_at_vote = Column(Integer, nullable=False)  # priorityに応じたポイント
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

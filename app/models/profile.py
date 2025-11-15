@@ -1,4 +1,5 @@
 # app/models/profile.py
+
 from sqlalchemy import Column, String, Boolean, Text, DateTime
 from datetime import datetime
 
