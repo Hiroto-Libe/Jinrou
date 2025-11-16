@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import uuid
-from typing import List
+from typing import List, Optional
 
 from ...api.deps import get_db_dep
 from ...models.room import RoomMember
@@ -107,7 +107,7 @@ def wolf_vote(
 @router.get("/{game_id}/wolves/tally", response_model=WolfTallyOut)
 def wolf_tally(
     game_id: str,
-    night_no: int | None = None,
+    night_no: Optional[int] = None,
     db: Session = Depends(get_db_dep),
 ):
     """
