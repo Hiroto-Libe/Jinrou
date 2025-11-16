@@ -10,11 +10,150 @@ from ...api.deps import get_db_dep
 from ...models.room import RoomMember
 from ...models.game import Game, GameMember, WolfVote
 from ...schemas.game import GameCreate, GameOut, GameMemberOut
-from ...schemas.night import WolfVoteCreate, WolfVoteOut, WolfTallyItem, WolfTallyOut
+from ...schemas.night import (
+    WolfVoteCreate,
+    WolfVoteOut,
+    WolfTallyItem,
+    WolfTallyOut,
+)
 
 router = APIRouter(prefix="/games", tags=["games"])
 
-# （create_game, assign_roles, get_game はすでにある想定）
+
+# -----------------------------
+# 🎮 ゲーム作成
+# -----------------------------
+@router.post("", response_model=GameOut)
+def create_game(
+    data: GameCreate,
+    db: Session = Depends(get_db_dep),
+):
+    # 当日メンバーがいないとゲーム開始できない
+    members = (
+        db.query(RoomMember)
+        .filter(RoomMember.room_id == data.room_id)
+        .all()
+    )
+    if not members:
+        raise HTTPException(status_code=400, detail="No room members to start game")
+
+    g = Game(
+        id=str(uuid.uuid4()),
+        room_id=data.room_id,
+    )
+
+    # 設定が届いていれば反映
+    if data.settings:
+        s = data.settings
+        g.show_votes_public = s.show_votes_public
+        g.day_timer_sec = s.day_timer_sec
+        g.knight_self_guard = s.knight_self_guard
+        g.knight_consecutive_guard = s.knight_consecutive_guard
+        g.allow_no_kill = s.allow_no_kill
+        g.wolf_vote_lvl1_point = s.wolf_vote_lvl1_point
+        g.wolf_vote_lvl2_point = s.wolf_vote_lvl2_point
+        g.wolf_vote_lvl3_point = s.wolf_vote_lvl3_point
+
+    db.add(g)
+    db.commit()
+    db.refresh(g)
+    return g
+
+
+# -----------------------------
+# 🧩 役職配布
+# -----------------------------
+@router.post("/{game_id}/role_assign", response_model=list[GameMemberOut])
+def assign_roles(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if game.status not in ("WAITING", "ROLE_ASSIGN"):
+        raise HTTPException(status_code=400, detail="Game already started")
+
+    # 参加メンバー（room_members）を取得
+    room_members: List[RoomMember] = (
+        db.query(RoomMember)
+        .filter(RoomMember.room_id == game.room_id)
+        .all()
+    )
+    n = len(room_members)
+    if n < 6:
+        raise HTTPException(status_code=400, detail="Need at least 6 players")
+
+    # 人数に応じた役職構成
+    roles = decide_roles(n)
+    if len(roles) != n:
+        raise HTTPException(status_code=500, detail="Role assignment mismatch")
+
+    import random
+    shuffled = room_members[:]
+    random.shuffle(shuffled)
+
+    game_members: list[GameMember] = []
+    for order_no, (rm, (role_type, team)) in enumerate(zip(shuffled, roles), start=1):
+        gm = GameMember(
+            id=str(uuid.uuid4()),
+            game_id=game.id,
+            room_member_id=rm.id,
+            display_name=rm.display_name,
+            avatar_url=rm.avatar_url,
+            role_type=role_type,
+            team=team,
+            alive=True,
+            order_no=order_no,
+        )
+        db.add(gm)
+        game_members.append(gm)
+
+    game.status = "ROLE_ASSIGN"
+    db.commit()
+
+    for gm in game_members:
+        db.refresh(gm)
+
+    return [GameMemberOut.model_validate(gm) for gm in game_members]
+
+# -----------------------------
+# 🔍 ゲームの状態を強制変更するAPI
+# -----------------------------
+@router.post("/{game_id}/debug_set_status")
+def debug_set_status(
+    game_id: str,
+    status: str,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    ★テスト用★ ゲームのステータスを強制的に変更する。
+    本番運用では削除 or 認証付きにする想定。
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    game.status = status
+    db.add(game)
+    db.commit()
+    db.refresh(game)
+    return {"game_id": game.id, "status": game.status}
+
+
+# -----------------------------
+# 🔍 ゲーム情報取得
+# -----------------------------
+@router.get("/{game_id}", response_model=GameOut)
+def get_game(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return game
 
 
 # -----------------------------
@@ -150,3 +289,34 @@ def wolf_tally(
         night_no=night_no,
         items=items,
     )
+
+
+# -----------------------------
+# 👥 人数に応じた役職構成
+# -----------------------------
+def decide_roles(n: int) -> list[tuple[str, str]]:
+    """
+    n人に対する役職構成を返す。
+    戻り値: [(role_type, team), ...] * n
+    """
+    if n == 6:
+        base = ["WEREWOLF", "WEREWOLF", "SEER", "KNIGHT", "VILLAGER", "VILLAGER"]
+    elif n == 7:
+        base = ["WEREWOLF", "WEREWOLF", "SEER", "KNIGHT", "VILLAGER", "VILLAGER", "VILLAGER"]
+    elif n == 8:
+        base = ["WEREWOLF", "WEREWOLF", "SEER", "MEDIUM", "KNIGHT", "VILLAGER", "VILLAGER", "VILLAGER"]
+    elif n == 9:
+        base = ["WEREWOLF", "WEREWOLF", "SEER", "MEDIUM", "KNIGHT"] + ["VILLAGER"] * 4
+    elif n == 10:
+        base = ["WEREWOLF", "WEREWOLF", "SEER", "MEDIUM", "KNIGHT"] + ["VILLAGER"] * 5
+    else:
+        # 雑なデフォルト：狼 = n//4人、他は SEER/MEDIUM/KNIGHT + 村人
+        wolves = max(2, n // 4)
+        base = ["WEREWOLF"] * wolves + ["SEER", "MEDIUM", "KNIGHT"]
+        while len(base) < n:
+            base.append("VILLAGER")
+
+    def to_team(role: str) -> str:
+        return "WOLF" if role == "WEREWOLF" else "VILLAGE"
+
+    return [(r, to_team(r)) for r in base]
