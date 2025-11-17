@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import uuid
+import random 
 from typing import List, Optional
 
 from ...api.deps import get_db_dep
@@ -289,6 +290,91 @@ def wolf_tally(
         night_no=night_no,
         items=items,
     )
+
+
+@router.post("/{game_id}/resolve_night_simple")
+def resolve_night_simple(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    シンプル版の夜明け処理:
+    - 現在の night_no の狼投票を集計
+    - 合計ポイント最大のターゲットを1人選び、alive=False にする
+    - Game.status を DAY_DISCUSSION に変更
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if game.status != "NIGHT":
+        raise HTTPException(status_code=400, detail="Game is not in NIGHT phase")
+
+    night_no = game.curr_night
+
+    # target ごとのポイント合計＋票数を集計
+    rows = (
+        db.query(
+            WolfVote.target_member_id,
+            func.sum(WolfVote.points_at_vote).label("total_points"),
+            func.count().label("vote_count"),
+        )
+        .filter(
+            WolfVote.game_id == game_id,
+            WolfVote.night_no == night_no,
+        )
+        .group_by(WolfVote.target_member_id)
+        .all()
+    )
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="No wolf votes to resolve")
+
+    # 最大ポイントを求める
+    max_points = max(int(r.total_points) for r in rows)
+
+    # 最大ポイントの候補をすべて集める（同点対応）
+    candidates = [
+        r for r in rows
+        if int(r.total_points) == max_points
+    ]
+
+    # 同点ならランダムで1人選ぶ
+    chosen = random.choice(candidates)
+
+    victim = db.get(GameMember, chosen.target_member_id)
+    if not victim:
+        raise HTTPException(status_code=500, detail="Victim GameMember not found")
+
+    # 襲撃で死亡扱い
+    victim.alive = False
+
+    # ゲームステータスを朝に進める（シンプル版）
+    game.status = "DAY_DISCUSSION"
+
+    db.add(victim)
+    db.add(game)
+    db.commit()
+    db.refresh(victim)
+    db.refresh(game)
+
+    return {
+        "game_id": game.id,
+        "night_no": night_no,
+        "status": game.status,
+        "victim": {
+            "id": victim.id,
+            "display_name": victim.display_name,
+            "role_type": victim.role_type,
+            "team": victim.team,
+            "alive": victim.alive,
+        },
+        "tally": {
+            "target_member_id": victim.id,
+            "total_points": max_points,
+            "vote_count": int(chosen.vote_count),
+        },
+    }
 
 
 # -----------------------------
