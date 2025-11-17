@@ -9,13 +9,19 @@ from typing import List, Optional
 
 from ...api.deps import get_db_dep
 from ...models.room import RoomMember
-from ...models.game import Game, GameMember, WolfVote
+from ...models.game import Game, GameMember, WolfVote, DayVote 
 from ...schemas.game import GameCreate, GameOut, GameMemberOut
 from ...schemas.night import (
     WolfVoteCreate,
     WolfVoteOut,
     WolfTallyItem,
     WolfTallyOut,
+)
+from ...schemas.day import (  # ★ 追加
+    DayVoteCreate,
+    DayVoteOut,
+    DayTallyItem,
+    DayTallyOut,
 )
 
 router = APIRouter(prefix="/games", tags=["games"])
@@ -241,6 +247,72 @@ def wolf_vote(
     return WolfVoteOut.model_validate(vote)
 
 
+@router.post("/{game_id}/day_vote", response_model=DayVoteOut)
+def day_vote(
+    game_id: str,
+    data: DayVoteCreate,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    昼の投票（シンプル版）:
+    - ゲームが DAY_DISCUSSION 状態のときのみ有効
+    - 生存しているプレイヤーだけ投票可能
+    - ターゲットも生存しているプレイヤーのみ
+    - 同じ voter が再投票した場合は上書き
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if game.status != "DAY_DISCUSSION":
+        raise HTTPException(status_code=400, detail="Game is not in DAY_DISCUSSION phase")
+
+    voter = db.get(GameMember, data.voter_member_id)
+    if not voter or voter.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Voter member not found")
+    if not voter.alive:
+        raise HTTPException(status_code=400, detail="Dead player cannot vote")
+
+    target = db.get(GameMember, data.target_member_id)
+    if not target or target.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Target member not found")
+    if not target.alive:
+        raise HTTPException(status_code=400, detail="Target is already dead")
+
+    if voter.id == target.id:
+        raise HTTPException(status_code=400, detail="Player cannot vote for themselves")
+
+    day_no = game.curr_day
+
+    # 既存投票があれば上書き
+    existing: DayVote | None = (
+        db.query(DayVote)
+        .filter(
+            DayVote.game_id == game_id,
+            DayVote.day_no == day_no,
+            DayVote.voter_member_id == voter.id,
+        )
+        .one_or_none()
+    )
+
+    if existing:
+        existing.target_member_id = target.id
+        vote = existing
+    else:
+        vote = DayVote(
+            id=str(uuid.uuid4()),
+            game_id=game_id,
+            day_no=day_no,
+            voter_member_id=voter.id,
+            target_member_id=target.id,
+        )
+        db.add(vote)
+
+    db.commit()
+    db.refresh(vote)
+    return DayVoteOut.model_validate(vote)
+
+
 # -----------------------------
 # 🧮 夜の人狼投票 集計
 # -----------------------------
@@ -424,3 +496,126 @@ def decide_roles(n: int) -> list[tuple[str, str]]:
         return "WOLF" if role == "WEREWOLF" else "VILLAGE"
 
     return [(r, to_team(r)) for r in base]
+
+@router.get("/{game_id}/day_tally", response_model=DayTallyOut)
+def day_tally(
+    game_id: str,
+    day_no: Optional[int] = None,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    昼投票の集計:
+    - target_member ごとの票数をカウント
+    - day_no を指定しなければ game.curr_day を使用
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if day_no is None:
+        day_no = game.curr_day
+
+    rows = (
+        db.query(
+            DayVote.target_member_id,
+            func.count().label("vote_count"),
+        )
+        .filter(
+            DayVote.game_id == game_id,
+            DayVote.day_no == day_no,
+        )
+        .group_by(DayVote.target_member_id)
+        .all()
+    )
+
+    items = [
+        DayTallyItem(
+            target_member_id=target_member_id,
+            vote_count=int(vote_count),
+        )
+        for target_member_id, vote_count in rows
+    ]
+
+    return DayTallyOut(
+        game_id=game_id,
+        day_no=day_no,
+        items=items,
+    )
+
+
+@router.post("/{game_id}/resolve_day_simple")
+def resolve_day_simple(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    シンプル版の昼決着:
+    - 現在の day_no の投票を集計
+    - 最多得票者を一人追放（alive=False）
+    - 同票ならランダムに選ぶ
+    - Game.status を NIGHT に変更し、curr_day/curr_night を進める
+    ※ 勝敗判定はここではまだしない（後で拡張）
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if game.status != "DAY_DISCUSSION":
+        raise HTTPException(status_code=400, detail="Game is not in DAY_DISCUSSION phase")
+
+    day_no = game.curr_day
+
+    rows = (
+        db.query(
+            DayVote.target_member_id,
+            func.count().label("vote_count"),
+        )
+        .filter(
+            DayVote.game_id == game_id,
+            DayVote.day_no == day_no,
+        )
+        .group_by(DayVote.target_member_id)
+        .all()
+    )
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="No day votes to resolve")
+
+    max_votes = max(int(r.vote_count) for r in rows)
+    candidates = [r for r in rows if int(r.vote_count) == max_votes]
+
+    chosen = random.choice(candidates)
+
+    victim = db.get(GameMember, chosen.target_member_id)
+    if not victim:
+        raise HTTPException(status_code=500, detail="Victim GameMember not found")
+
+    victim.alive = False
+
+    # 次の夜へ進める（シンプル版）
+    game.status = "NIGHT"
+    game.curr_day = game.curr_day + 1
+    game.curr_night = game.curr_night + 1
+
+    db.add(victim)
+    db.add(game)
+    db.commit()
+    db.refresh(victim)
+    db.refresh(game)
+
+    return {
+        "game_id": game.id,
+        "day_no": day_no,
+        "status": game.status,
+        "victim": {
+            "id": victim.id,
+            "display_name": victim.display_name,
+            "role_type": victim.role_type,
+            "team": victim.team,
+            "alive": victim.alive,
+        },
+        "tally": {
+            "target_member_id": victim.id,
+            "vote_count": max_votes,
+        },
+    }
