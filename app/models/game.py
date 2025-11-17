@@ -1,5 +1,13 @@
 # app/models/game.py
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey
+from sqlalchemy import (
+    Column,
+    String,
+    Integer,
+    Boolean,
+    ForeignKey,
+    DateTime,
+    func,
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -68,3 +76,13 @@ class WolfVote(Base):
     points_at_vote = Column(Integer, nullable=False)  # priorityに応じたポイント
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+class DayVote(Base):
+    __tablename__ = "day_votes"
+
+    id = Column(String, primary_key=True, index=True)
+    game_id = Column(String, ForeignKey("games.id"), index=True, nullable=False)
+    day_no = Column(Integer, nullable=False)
+    voter_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
+    target_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
