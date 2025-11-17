@@ -377,6 +377,24 @@ def resolve_night_simple(
     }
 
 
+@router.get("/{game_id}/members", response_model=list[GameMemberOut])
+def list_game_members(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    members = (
+        db.query(GameMember)
+        .filter(GameMember.game_id == game_id)
+        .order_by(GameMember.order_no)
+        .all()
+    )
+    return [GameMemberOut.model_validate(m) for m in members]
+
+
 # -----------------------------
 # 👥 人数に応じた役職構成
 # -----------------------------
