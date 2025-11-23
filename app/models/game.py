@@ -40,7 +40,17 @@ class Game(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     finished_at = Column(DateTime, nullable=True)
 
+    # ★ 初日白通知ターゲット（GameMember.id）
+    seer_first_white_target_id = Column(String(36), ForeignKey("game_members.id"), nullable=True)
+
     members = relationship("GameMember", back_populates="game", cascade="all, delete-orphan")
+
+    # ★ 白通知対象へのリレーション（必要なら）
+    seer_first_white_target = relationship(
+        "GameMember",
+        foreign_keys=[seer_first_white_target_id],
+        uselist=False,
+    )
 
 
 class GameMember(Base):
@@ -86,3 +96,4 @@ class DayVote(Base):
     voter_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
     target_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+

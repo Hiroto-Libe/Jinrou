@@ -10,6 +10,7 @@ from typing import List, Optional
 from ...api.deps import get_db_dep
 from ...models.room import RoomMember
 from ...models.game import Game, GameMember, WolfVote, DayVote 
+from ...schemas.seer import SeerFirstWhiteOut  # ★ 追加
 from ...schemas.game import GameCreate, GameOut, GameMemberOut
 from ...schemas.night import (
     WolfVoteCreate,
@@ -671,6 +672,81 @@ def resolve_day_simple(
             "vote_count": max_votes,
         },
     }
+
+
+@router.get("/{game_id}/seer/first_white", response_model=SeerFirstWhiteOut)
+def get_or_create_seer_first_white(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    初日白通知API:
+    - まだ白通知ターゲットが決まっていなければ、村陣営からランダムに1人選び、
+      game.seer_first_white_target_id に保存する。
+    - すでに決まっていれば、その情報を返す（idempotent）。
+    - 前提: このゲームに占い師(SEER)が1人存在する。
+    """
+
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    # 1. 占い師（SEER）を特定
+    seer = (
+        db.query(GameMember)
+        .filter(
+            GameMember.game_id == game_id,
+            GameMember.role_type == "SEER",
+        )
+        .one_or_none()
+    )
+    if not seer:
+        raise HTTPException(status_code=400, detail="No seer in this game")
+
+    # 2. すでに白通知ターゲットが決まっている場合 → それを返す
+    if game.seer_first_white_target_id:
+        target = db.get(GameMember, game.seer_first_white_target_id)
+        if not target:
+            # データ不整合（念のため）
+            raise HTTPException(status_code=500, detail="Seer first white target not found")
+        return SeerFirstWhiteOut(
+            game_id=game.id,
+            seer_member_id=seer.id,
+            target_member_id=target.id,
+            target_display_name=target.display_name,
+            is_wolf=False,  # このAPIは「人狼ではない」ことを知らせる
+        )
+
+    # 3. まだ決まっていない場合 → 村陣営からランダムに1人選ぶ
+    candidates = (
+        db.query(GameMember)
+        .filter(
+            GameMember.game_id == game_id,
+            GameMember.team == "VILLAGE",   # 村陣営
+            GameMember.id != seer.id,       # 占い師本人は除外
+        )
+        .all()
+    )
+
+    if not candidates:
+        raise HTTPException(status_code=400, detail="No village candidate for seer white")
+
+    target = random.choice(candidates)
+
+    # 4. game に保存して永続化
+    game.seer_first_white_target_id = target.id
+    db.add(game)
+    db.commit()
+    db.refresh(game)
+
+    # 5. レスポンス
+    return SeerFirstWhiteOut(
+        game_id=game.id,
+        seer_member_id=seer.id,
+        target_member_id=target.id,
+        target_display_name=target.display_name,
+        is_wolf=False,
+    )
 
 
 @router.get("/{game_id}/judge")
