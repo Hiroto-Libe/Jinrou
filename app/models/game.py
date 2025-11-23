@@ -43,7 +43,13 @@ class Game(Base):
     # ★ 初日白通知ターゲット（GameMember.id）
     seer_first_white_target_id = Column(String(36), ForeignKey("game_members.id"), nullable=True)
 
-    members = relationship("GameMember", back_populates="game", cascade="all, delete-orphan")
+    members = relationship(
+        "GameMember",
+        back_populates="game",
+        cascade="all, delete-orphan",
+        foreign_keys="GameMember.game_id",   # ★ これを追加！
+    )
+
 
     # ★ 白通知対象へのリレーション（必要なら）
     seer_first_white_target = relationship(
@@ -69,7 +75,12 @@ class GameMember(Base):
     alive = Column(Boolean, nullable=False, default=True)
     order_no = Column(Integer, nullable=False, default=0)
 
-    game = relationship("Game", back_populates="members")
+    game = relationship(
+        "Game",
+        back_populates="members",
+        foreign_keys=[game_id],   # ★ 明示
+    )
+
 
 
 class WolfVote(Base):
