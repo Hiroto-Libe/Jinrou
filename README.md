@@ -1,226 +1,292 @@
 # 🐺 Jinrou Web Game Backend (FastAPI)
 
-スマホ・PC からアクセスし、  
-**同一 Wi-Fi 上で最大 20 人がリアルタイムで遊べる人狼ゲーム** のバックエンド API です。
-
-FastAPI + SQLite を使い、  
-夜の人狼投票 → 昼の処刑 → 勝敗判定までの一連のゲーム進行が実現されています。
+スマホ・PCからアクセスし、**同一Wi-Fi上で最大20人がリアルタイムで遊べる人狼ゲーム**のバックエンドAPIです。  
+FastAPI + SQLite により、夜の襲撃 → 昼の処刑 → 勝敗判定までの一連の進行が実装されています。
 
 ---
 
-# 🚀 主要機能（MVP 完成版）
+# 🚀 主要機能（MVP完成版）
 
-## 🎯 ゲームの基本サイクル
-- 参加者登録（プロフィール管理）
-- 出席メンバーの選択（ルームごと）
-- ゲーム作成（Game）
-- 役職の自動配布（人数に応じて狼・占い師・騎士などを自動割り当て）
+## 🎯 ゲーム基本サイクル
 
----
-
-## 🌙 夜フェーズ（NIGHT）
-### ✔ 人狼の襲撃投票
-- 各狼がターゲットを選ぶ
-- 優先度（lvl1, lvl2, lvl3）によってポイントが変動
-- ポイント合計が最大のプレイヤーが襲撃対象（同点ならランダム）
-
-### ✔ 夜明け処理（resolve_night_simple）
-- 襲撃結果を反映（alive=False）
-- ゲームステータス → `DAY_DISCUSSION`（昼へ）
-- **自動で勝敗判定**
-  - 人狼生存 0 → VILLAGE_WIN  
-  - 人狼数 >= 村人数 → WOLF_WIN  
-  - それ以外 → 継続
+- プロフィール登録  
+- ルーム作成  
+- 出席簿（RoomRoster）  
+- 当日メンバー選択（RoomMember）  
+- ゲーム作成（Game）  
+- 役職自動配布（GameMember）  
+- **ゲームは初日朝からスタート（初夜なし）**
+- **初日に占い師へランダム村人1名の“白通知”を自動付与**
 
 ---
 
-## 🌞 昼フェーズ（DAY_DISCUSSION）
-### ✔ プレイヤー投票（day_vote）
-- 生存者のみ投票可能
-- 自分へ投票は不可
-- 再投票すると前回を上書き
+# 🌅 初日朝フェーズ（ゲーム開始時）
 
-### ✔ 昼決着（resolve_day_simple）
-- 最多得票の player を追放（alive=False）
-- 同票はランダム
-- フェーズを NIGHT に進める
-- **自動で勝敗判定**（夜と同じロジック）
+## ✔ 初日＝朝スタート
+- ゲームは **DAY_DISCUSSION（朝）** から開始します。  
+- 初夜は存在しません。
+
+## ✔ 占い師への初日白通知（自動）
+- 役職配布後、占い師へ  
+  **「人狼ではない村人1名」をランダムで通知**
+- 例：  
+  「初日に確認した *はなこ* は **人狼ではありません**」
 
 ---
 
-## 🏆 勝敗判定（自動 & 手動チェック）
-### ✔ 自動判定（夜明け・昼決着後に毎回動作）
-人狼が 0 → 村勝利（VILLAGE_WIN）
-人狼数 >= 村人数 → 狼勝利（WOLF_WIN）
+# 🌞 朝フェーズ（議論 → 推理発表）
 
-### ✔ 手動 API（現在の状況を確認）
+## 🕒 ① 議論フェーズ（時間は人数で変動）
+
+| 生存人数 | 議論時間 |
+|---------|----------|
+| 5人以上 | **5分** |
+| 4人     | **4分** |
+| 3人     | **3分** |
+| 2人以下 | 決着間近のため議論スキップ想定 |
+
+- ゲーム序盤は5分  
+- 終盤はテンポよく進めるため短縮  
+- 将来的に UI カウントダウン実装予定  
+
+## 🗣 ② 推理発表（1人ずつ）
+- 「誰が人狼か」
+- 「その理由」
+- 一人ずつ順番に発表する  
+- その後、昼投票へ移行
+
+---
+
+# 🌙 夜フェーズ（NIGHT）
+
+## ✔ 人狼襲撃投票
+
+- 各狼がターゲットへ投票  
+- priority_level（1〜3）でポイント加算  
+- ポイント最大ターゲットを襲撃  
+- 同点ならランダム  
+
+### 投票API例
+```json
+{
+  "wolf_member_id": "WOLF_GAME_MEMBER_ID",
+  "target_member_id": "TARGET_GAME_MEMBER_ID",
+  "priority_level": 1
+}
+```
+
+---
+
+## ✔ 夜明け処理（resolve_night_simple）
+
+```text
+POST /api/games/{game_id}/resolve_night_simple
+```
+
+### 処理内容
+- victim.alive = false  
+- 状態を DAY_DISCUSSION に移行  
+- **自動勝敗判定あり**
+
+---
+
+# 🌞 昼フェーズ（DAY_DISCUSSION）
+
+## ✔ 昼の投票
+
+```json
+{
+  "voter_member_id": "VOTER_ID",
+  "target_member_id": "TARGET_ID"
+}
+```
+
+- 生存者のみ投票可能  
+- 自己投票不可  
+- 再投票は上書き  
+
+---
+
+## ✔ 昼決着（resolve_day_simple）
+
+```text
+POST /api/games/{game_id}/resolve_day_simple
+```
+
+- 最多得票者を追放  
+- 同票はランダム  
+- NIGHTへ進行  
+- **勝敗判定あり**
+
+---
+
+# 🏆 勝敗判定
+
+## ✔ 判定ロジック
+
+- 生存WOLF = 0 → **VILLAGE_WIN**  
+- 生存WOLF ≥ 生存VILLAGE → **WOLF_WIN**  
+- その他 → **ONGOING**
+
+### 手動判定 API
+```text
 GET /api/games/{game_id}/judge
-
----
-
-## 👥 メンバー関連機能
-- プロフィール登録（ニックネーム・アバターURL）
-- ルームごとの常連メンバー管理
-- ゲーム当日の参加メンバー選択（RDB永続化）
+```
 
 ---
 
 # 🗂 ER図
-※ PNG は `/Doc/Jinrou_ER図.png` にあります。
-（GitHub の場合は画像を README と同階層か Doc フォルダに置けば自動プレビューされます）
 
-ユーザー（Profile）
-↓ ルーム参加（RoomRoster）
-ルーム（Room）
-↓ 当日メンバー（RoomMember）
-ゲーム（Game）
-├─ ゲーム参加者（GameMember）
-├─ 夜の投票（WolfVote）
-└─ 昼の投票（DayVote）
+実体ファイル：  
+`Doc/Jinrou_ER図.png`
 
 ---
 
-# 🧪 動作確認手順（完全版）
+# 🧪 動作確認手順（フル版）
 
-以下の手順に従うと、  
-**実際に「村勝利」までの一連の進行を確認できます。**
+以下は **初日朝スタート → 夜 → 昼 → 村勝利** の完全シナリオです。
 
 ---
 
-## ① プロフィールを複数作成（6人以上）
-POST /api/profiles
-
-例：
-
+# 1. プロフィール作成（6名以上）
 ```json
 {
   "display_name": "たろう",
   "avatar_url": "string",
   "note": "テスト参加者1"
 }
-6人分登録 → /api/profiles で確認
+```
 
-## ② ルーム作成
-POST /api/rooms
+---
 
-POST /api/rooms
-
-例：
+# 2. ルーム作成
+```json
 {
   "name": "A卓"
 }
+```
 
-## ③ ルームにメンバー登録（出席簿追加）
-POST /api/rooms/{room_id}/roster
+---
 
-プロフィールIDを指定：
+# 3. 出席簿登録
+```json
 {
-  "profile_id": "XXXX-profile-id"
+  "profile_id": "PROFILE_ID"
 }
-6人分繰り返す。
+```
 
-## ④ 当日のメンバー選択（RoomMember 化）
-POST /api/rooms/{room_id}/members/bulk_from_roster
+---
 
-例：
+# 4. 当日メンバー登録
+```json
 {
-  "profile_ids": [
-    "id1","id2","id3","id4","id5","id6"
-  ]
+  "profile_ids": ["id1","id2","id3","id4","id5","id6"]
 }
+```
 
-## ⑤ ゲーム作成
-POST /api/games
+---
 
-例：
+# 5. ゲーム作成
+```json
 {
-  "room_id": "A卓のroom_id",
+  "room_id": "ROOM_ID",
   "settings": {
     "show_votes_public": true,
     "day_timer_sec": 300,
-    "knight_self_guard": false,
-    "knight_consecutive_guard": false,
     "allow_no_kill": false,
     "wolf_vote_lvl1_point": 3,
     "wolf_vote_lvl2_point": 2,
     "wolf_vote_lvl3_point": 1
   }
 }
+```
 
-## ⑥ 役職配布
+---
+
+# 6. 役職配布（+ 占い師白通知）
+
+```
 POST /api/games/{game_id}/role_assign
+```
 
-返信JSONに各 GameMember の ID が入っているので控える。
+---
 
+# 7. 初日朝：議論 → 推理発表
+人数に応じた議論時間ルールを適用。
 
-## ⑦ 夜フェーズ（NIGHT）
-ゲームのステータスが NIGHT であることを確認。
-人狼が襲撃投票
-POST /api/games/{game_id}/wolves/vote
+---
 
-夜明け処理
-POST /api/games/{game_id}/resolve_night_simple
-
-勝敗が決まっていれば status=VILLAGE_WIN or WOLF_WIN
-
-## ⑧ 昼フェーズ（DAY_DISCUSSION）
-投票（生存者→ターゲット）
-POST /api/games/{game_id}/day_vote
-
-例（はなこ → こうへい）：
+# 8. 夜フェーズ：人狼投票
+```json
 {
-  "voter_member_id": "98f6b61a-ee20-4d59-b887-51a726bb61f4",
-  "target_member_id": "70a5c24e-7f10-48d4-b887-51a726bb61f4"
+  "wolf_member_id": "狼A_ID",
+  "target_member_id": "村人_ID",
+  "priority_level": 1
 }
-全生存者について繰り返す。
+```
 
-## ⑨ 昼の決着（resolve_day_simple）
-POST /api/games/{game_id}/resolve_day_simple
+---
 
-こうへい（最後の狼）を処刑した例：
+# 9. 夜明け処理
+```
+POST /api/games/{game_id}/resolve_night_simple
+```
+
+---
+
+# 10. 昼フェーズ：投票（推理後）
+```json
+{
+  "voter_member_id": "HANAKO_ID",
+  "target_member_id": "KOHEI_ID"
+}
+```
+
+---
+
+# 11. 昼決着 → 村勝利例
+```json
 {
   "status": "VILLAGE_WIN",
   "victim": { "display_name": "こうへい", "alive": false }
 }
+```
 
-## 🔟 勝敗最終確認
-GET /api/games/{game_id}/judge
+---
+
+# 12. 最終勝敗確認
+```json
+{
+  "result": "VILLAGE_WIN",
+  "wolf_alive": 0,
+  "village_alive": 3
+}
+```
 
 ---
 
 # 🔧 開発環境
-- Python 3.13
-- FastAPI
-- SQLAlchemy
-- SQLite（ローカル実行用）
-- uvicorn（ローカルサーバー）
 
-起動：
+- Python 3.13  
+- FastAPI  
+- SQLAlchemy  
+- SQLite  
+- uvicorn  
+
+### 起動
+```bash
 uvicorn app.main:app --reload
+```
 
-スマホアクセス（同一Wi-Fi）：
-http://<PCのIPアドレス>:8000
-
----
-
-# 📝 今後の発展予定
-- 占い師・騎士・霊媒師の夜行動 API
-- 狼同士のリアルタイム相談（WebSocket）
-- 吊られた瞬間に役職公開などの設定追加
-- 超シンプルなスマホWeb UI
+### スマホ接続（同一Wi-Fi）
+```
+http://<PC-IP>:8000
+```
 
 ---
 
 # 🎉 Author
-ItoHiroto
-Portfolio purpose: Python / FastAPI / Backend Development
-このプロジェクトは 実務レベルのAPI設計・DB設計・ゲームロジック実装 を目的に作成。
 
----
+- ItoHiroto  
+- 目的：FastAPI / Python / ゲームロジック構築ポートフォリオ  
 
-# 📌 次にやるなら？
-- README を GitHub にアップ
-- Link をプロフィールに掲載
-- 次は「夜の役職行動」 or 「簡易UI」どちらかでフロント着手できます！
-
-必要があれば README に画像埋め込み版や章立て調整などもできますよ。
