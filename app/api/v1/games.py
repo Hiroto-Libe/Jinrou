@@ -313,6 +313,45 @@ def day_vote(
     return DayVoteOut.model_validate(vote)
 
 
+def _judge_game_result(game_id: str, db: Session) -> dict:
+    """
+    生存メンバーから勝敗を判定するヘルパー関数。
+    戻り値は dict で result / wolf_alive / village_alive / reason を含む。
+    """
+    alive_members = (
+        db.query(GameMember)
+        .filter(GameMember.game_id == game_id, GameMember.alive == True)
+        .all()
+    )
+
+    wolves = [m for m in alive_members if m.team == "WOLF"]
+    villages = [m for m in alive_members if m.team == "VILLAGE"]
+
+    wolf_count = len(wolves)
+    village_count = len(villages)
+
+    if wolf_count == 0:
+        return {
+            "result": "VILLAGE_WIN",
+            "wolf_alive": wolf_count,
+            "village_alive": village_count,
+            "reason": "All werewolves are dead.",
+        }
+    elif wolf_count >= village_count:
+        return {
+            "result": "WOLF_WIN",
+            "wolf_alive": wolf_count,
+            "village_alive": village_count,
+            "reason": "Wolves are equal to or more than villages.",
+        }
+    else:
+        return {
+            "result": "ONGOING",
+            "wolf_alive": wolf_count,
+            "village_alive": village_count,
+            "reason": "Game continues.",
+        }
+
 # -----------------------------
 # 🧮 夜の人狼投票 集計
 # -----------------------------
@@ -429,6 +468,12 @@ def resolve_night_simple(
     db.commit()
     db.refresh(victim)
     db.refresh(game)
+
+    judge = _judge_game_result(game.id, db)
+    if judge["result"] != "ONGOING":
+        game.status = judge["result"]
+        db.commit()
+        db.refresh(game)
 
     return {
         "game_id": game.id,
@@ -603,6 +648,13 @@ def resolve_day_simple(
     db.refresh(victim)
     db.refresh(game)
 
+    # --- ★ 勝敗判定（昼の処刑後） ---
+    judge = _judge_game_result(game.id, db)
+    if judge["result"] != "ONGOING":
+        game.status = judge["result"]      # "VILLAGE_WIN" or "WOLF_WIN"
+        db.commit()
+        db.refresh(game)
+
     return {
         "game_id": game.id,
         "day_no": day_no,
@@ -619,3 +671,31 @@ def resolve_day_simple(
             "vote_count": max_votes,
         },
     }
+
+
+@router.get("/{game_id}/judge")
+def judge_game(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    現時点の生存状況から勝敗を判定する。
+    - result: "ONGOING" / "VILLAGE_WIN" / "WOLF_WIN"
+    - wolf_alive, village_alive: 生存数
+    - reason: 簡単な説明
+    ※ このAPIは Game.status を変更しない（判定のみ）。
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    result = _judge_game_result(game_id, db)
+    # 参考用に現在の status や day/night も返しておくと便利
+    result.update(
+        {
+            "game_status": game.status,
+            "curr_day": game.curr_day,
+            "curr_night": game.curr_night,
+        }
+    )
+    return result
