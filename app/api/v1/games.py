@@ -174,8 +174,6 @@ from sqlalchemy import func
 # ... 既存の import そのまま ...
 
 from ...api.deps import get_db_dep
-from ...models.game import Game, GameMember
-# すでに GameMember は import 済みなので、そのままでOK
 
 # 中略（既存のエンドポイントたち）
 
