@@ -9,8 +9,16 @@ from typing import List, Optional
 
 from ...api.deps import get_db_dep
 from ...models.room import RoomMember
-from ...models.game import Game, GameMember, WolfVote, DayVote 
-from ...schemas.seer import SeerFirstWhiteOut  # ★ 追加
+from ...models.game import (
+    Game,
+    GameMember,
+    WolfVote,
+    DayVote,
+    SeerInspect,
+    KnightGuard,
+    MediumInspect,   # ★ 追加
+)
+
 from ...schemas.game import GameCreate, GameOut, GameMemberOut
 from ...schemas.night import (
     WolfVoteCreate,
@@ -24,6 +32,16 @@ from ...schemas.day import (  # ★ 追加
     DayTallyItem,
     DayTallyOut,
 )
+from ...schemas.seer import (
+    SeerFirstWhiteOut,
+    SeerInspectCreate,
+    SeerInspectOut,
+)
+from ...schemas.knight import (
+    KnightGuardCreate,
+    KnightGuardOut,
+)
+from ...schemas.medium import MediumInspectOut  # ★ 追加
 
 router = APIRouter(prefix="/games", tags=["games"])
 
@@ -148,6 +166,64 @@ def debug_set_status(
     db.commit()
     db.refresh(game)
     return {"game_id": game.id, "status": game.status}
+
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+# ... 既存の import そのまま ...
+
+from ...api.deps import get_db_dep
+from ...models.game import Game, GameMember
+# すでに GameMember は import 済みなので、そのままでOK
+
+# 中略（既存のエンドポイントたち）
+
+@router.get("/{game_id}/day_timer")
+def get_day_timer(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    朝の議論タイマー秒数を返すAPI。
+
+    仕様:
+    - 基本値は game.day_timer_sec（例: 300秒）
+    - 生存プレイヤー数が 4人のとき → 240秒
+    - 生存プレイヤー数が 3人以下のとき → 180秒
+    - それ以外（5人以上）のとき → 基本値そのまま
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    # 生存しているメンバー数をカウント
+    alive_count = (
+        db.query(func.count(GameMember.id))
+        .filter(
+            GameMember.game_id == game_id,
+            GameMember.alive == True,
+        )
+        .scalar()
+    )
+
+    base = game.day_timer_sec  # 基本値（例: 300秒）
+
+    # 人数に応じた調整
+    if alive_count <= 3:
+        timer_sec = 180
+    elif alive_count == 4:
+        timer_sec = 240
+    else:
+        timer_sec = base
+
+    return {
+        "game_id": game.id,
+        "curr_day": game.curr_day,
+        "alive_count": int(alive_count),
+        "base_timer_sec": base,
+        "timer_sec": timer_sec,
+    }
 
 
 # -----------------------------
@@ -412,8 +488,11 @@ def resolve_night_simple(
     """
     シンプル版の夜明け処理:
     - 現在の night_no の狼投票を集計
-    - 合計ポイント最大のターゲットを1人選び、alive=False にする
+    - 合計ポイント最大のターゲットを1人選ぶ
+    - そのターゲットが騎士に護衛されていれば襲撃失敗（誰も死なない）
+    - 護衛されていなければ、そのターゲットを死亡扱い（alive=False）
     - Game.status を DAY_DISCUSSION に変更
+    - 処理後に勝敗判定も行う
     """
     game = db.get(Game, game_id)
     if not game:
@@ -446,10 +525,7 @@ def resolve_night_simple(
     max_points = max(int(r.total_points) for r in rows)
 
     # 最大ポイントの候補をすべて集める（同点対応）
-    candidates = [
-        r for r in rows
-        if int(r.total_points) == max_points
-    ]
+    candidates = [r for r in rows if int(r.total_points) == max_points]
 
     # 同点ならランダムで1人選ぶ
     chosen = random.choice(candidates)
@@ -458,21 +534,41 @@ def resolve_night_simple(
     if not victim:
         raise HTTPException(status_code=500, detail="Victim GameMember not found")
 
-    # 襲撃で死亡扱い
-    victim.alive = False
+    # ★ この夜の騎士護衛を取得
+    guards = (
+        db.query(KnightGuard)
+        .filter(
+            KnightGuard.game_id == game_id,
+            KnightGuard.night_no == night_no,
+        )
+        .all()
+    )
+    guarded_ids = {g.target_member_id for g in guards}
 
-    # ゲームステータスを朝に進める（シンプル版）
+    guarded_success = False
+
+    # ★ 襲撃対象が護衛されていれば襲撃失敗（死亡なし）
+    if victim.id in guarded_ids:
+        guarded_success = True
+        # victim.alive は変更しない（生きたまま）
+    else:
+        # 襲撃成功 → 死亡
+        victim.alive = False
+        db.add(victim)
+
+    # ゲームステータスを朝に進める
     game.status = "DAY_DISCUSSION"
-
-    db.add(victim)
     db.add(game)
     db.commit()
-    db.refresh(victim)
+
+    if not guarded_success:
+        db.refresh(victim)
     db.refresh(game)
 
+    # ★ 勝敗判定
     judge = _judge_game_result(game.id, db)
     if judge["result"] != "ONGOING":
-        game.status = judge["result"]
+        game.status = judge["result"]  # "VILLAGE_WIN" / "WOLF_WIN"
         db.commit()
         db.refresh(game)
 
@@ -480,7 +576,7 @@ def resolve_night_simple(
         "game_id": game.id,
         "night_no": night_no,
         "status": game.status,
-        "victim": {
+        "victim": None if guarded_success else {
             "id": victim.id,
             "display_name": victim.display_name,
             "role_type": victim.role_type,
@@ -492,7 +588,9 @@ def resolve_night_simple(
             "total_points": max_points,
             "vote_count": int(chosen.vote_count),
         },
+        "guarded_success": guarded_success,
     }
+
 
 
 @router.get("/{game_id}/members", response_model=list[GameMemberOut])
@@ -638,6 +736,9 @@ def resolve_day_simple(
 
     victim.alive = False
 
+    # ★ この昼に処刑されたプレイヤーを記録
+    game.last_executed_member_id = victim.id
+
     # 次の夜へ進める（シンプル版）
     game.status = "NIGHT"
     game.curr_day = game.curr_day + 1
@@ -747,6 +848,269 @@ def get_or_create_seer_first_white(
         target_display_name=target.display_name,
         is_wolf=False,
     )
+
+
+@router.post(
+    "/{game_id}/seer/{seer_member_id}/inspect",
+    response_model=SeerInspectOut,
+)
+def seer_inspect(
+    game_id: str,
+    seer_member_id: str,
+    data: SeerInspectCreate,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    占い師の夜行動API:
+    - ゲームが NIGHT のときのみ実行可能
+    - seer_member_id は SEER 本人であること
+    - 生存中であること
+    - 1夜につき1回だけ
+    - 対象は同じゲーム内の生存メンバー
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if game.status != "NIGHT":
+        raise HTTPException(status_code=400, detail="Game is not in NIGHT phase")
+
+    # 占い師本人
+    seer = db.get(GameMember, seer_member_id)
+    if not seer or seer.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Seer member not found")
+
+    if seer.role_type != "SEER":
+        raise HTTPException(status_code=400, detail="This member is not SEER")
+
+    if not seer.alive:
+        raise HTTPException(status_code=400, detail="Dead seer cannot inspect")
+
+    # 対象
+    target = db.get(GameMember, data.target_member_id)
+    if not target or target.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Target member not found")
+
+    if not target.alive:
+        raise HTTPException(status_code=400, detail="Target is already dead")
+
+    if target.id == seer.id:
+        raise HTTPException(status_code=400, detail="Seer cannot inspect themselves")
+
+    night_no = game.curr_night
+
+    # その夜はすでに占っていないか（1夜1回制限）
+    existing = (
+        db.query(SeerInspect)
+        .filter(
+            SeerInspect.game_id == game_id,
+            SeerInspect.night_no == night_no,
+            SeerInspect.seer_member_id == seer.id,
+        )
+        .one_or_none()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Seer already inspected someone this night",
+        )
+
+    # 判定ロジック：team == "WOLF" なら人狼側
+    is_wolf = (target.team == "WOLF")
+
+    inspect = SeerInspect(
+        id=str(uuid.uuid4()),
+        game_id=game_id,
+        night_no=night_no,
+        seer_member_id=seer.id,
+        target_member_id=target.id,
+        is_wolf=is_wolf,
+    )
+    db.add(inspect)
+    db.commit()
+    db.refresh(inspect)
+
+    return SeerInspectOut.model_validate(inspect)
+
+
+@router.post(
+    "/{game_id}/knight/{knight_member_id}/guard",
+    response_model=KnightGuardOut,
+)
+def knight_guard(
+    game_id: str,
+    knight_member_id: str,
+    data: KnightGuardCreate,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    騎士の夜行動API:
+    - ゲームが NIGHT のときのみ実行可能
+    - KNIGHT 本人であること
+    - 生存していること
+    - 1夜につき1回だけ
+    - self_guard / consecutive_guard の制約は Game 設定に従う
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if game.status != "NIGHT":
+        raise HTTPException(status_code=400, detail="Game is not in NIGHT phase")
+
+    # 騎士本人
+    knight = db.get(GameMember, knight_member_id)
+    if not knight or knight.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Knight member not found")
+
+    if knight.role_type != "KNIGHT":
+        raise HTTPException(status_code=400, detail="This member is not KNIGHT")
+
+    if not knight.alive:
+        raise HTTPException(status_code=400, detail="Dead knight cannot guard")
+
+    # 対象
+    target = db.get(GameMember, data.target_member_id)
+    if not target or target.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Target member not found")
+
+    if not target.alive:
+        raise HTTPException(status_code=400, detail="Target is already dead")
+
+    # self_guard 制約
+    if (not game.knight_self_guard) and target.id == knight.id:
+        raise HTTPException(status_code=400, detail="Self guard is not allowed")
+
+    night_no = game.curr_night
+
+    # 連続ガード制約（同じ相手を連続で守る禁止）
+    if not game.knight_consecutive_guard:
+        last_guard = (
+            db.query(KnightGuard)
+            .filter(
+                KnightGuard.game_id == game_id,
+                KnightGuard.knight_member_id == knight.id,
+                KnightGuard.night_no == night_no - 1,
+            )
+            .one_or_none()
+        )
+        if last_guard and last_guard.target_member_id == target.id:
+            raise HTTPException(
+                status_code=400,
+                detail="Consecutive guard is not allowed for the same target",
+            )
+
+    # その夜にすでに護衛していないか
+    existing = (
+        db.query(KnightGuard)
+        .filter(
+            KnightGuard.game_id == game_id,
+            KnightGuard.night_no == night_no,
+            KnightGuard.knight_member_id == knight.id,
+        )
+        .one_or_none()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Knight already guarded someone this night",
+        )
+
+    guard = KnightGuard(
+        id=str(uuid.uuid4()),
+        game_id=game_id,
+        night_no=night_no,
+        knight_member_id=knight.id,
+        target_member_id=target.id,
+    )
+    db.add(guard)
+    db.commit()
+    db.refresh(guard)
+
+    return KnightGuardOut.model_validate(guard)
+
+
+@router.post(
+    "/{game_id}/medium/{medium_member_id}/inspect",
+    response_model=MediumInspectOut,
+)
+def medium_inspect(
+    game_id: str,
+    medium_member_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    霊媒師の夜行動API:
+    - ゲームが NIGHT のときのみ実行可能
+    - medium_member_id は MEDIUM 本人であること
+    - 生存中であること
+    - 直前の昼に処刑されたプレイヤーの陣営を知る
+    - 1日につき1回だけ（同じ day_no では複数回不可）
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if game.status != "NIGHT":
+        raise HTTPException(status_code=400, detail="Game is not in NIGHT phase")
+
+    # 霊媒師本人
+    medium = db.get(GameMember, medium_member_id)
+    if not medium or medium.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Medium member not found")
+
+    if medium.role_type != "MEDIUM":
+        raise HTTPException(status_code=400, detail="This member is not MEDIUM")
+
+    if not medium.alive:
+        raise HTTPException(status_code=400, detail="Dead medium cannot inspect")
+
+    # 直前の昼に処刑されたプレイヤーがいるか？
+    if not game.last_executed_member_id:
+        raise HTTPException(status_code=400, detail="No executed member to inspect")
+
+    executed = db.get(GameMember, game.last_executed_member_id)
+    if not executed or executed.game_id != game_id:
+        raise HTTPException(status_code=500, detail="Executed member not found")
+
+    # この夜に対応する昼は 1 日前の curr_day
+    day_no = game.curr_day - 1
+    if day_no <= 0:
+        raise HTTPException(status_code=400, detail="No previous day to inspect")
+
+    # 同じ day_no で既に霊媒していないかチェック（1日1回制限）
+    existing = (
+        db.query(MediumInspect)
+        .filter(
+            MediumInspect.game_id == game_id,
+            MediumInspect.day_no == day_no,
+            MediumInspect.medium_member_id == medium.id,
+        )
+        .one_or_none()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Medium already inspected for this day",
+        )
+
+    # 判定ロジック：team == "WOLF" なら人狼陣営
+    is_wolf = (executed.team == "WOLF")
+
+    inspect = MediumInspect(
+        id=str(uuid.uuid4()),
+        game_id=game_id,
+        day_no=day_no,
+        medium_member_id=medium.id,
+        target_member_id=executed.id,
+        is_wolf=is_wolf,
+    )
+    db.add(inspect)
+    db.commit()
+    db.refresh(inspect)
+
+    return MediumInspectOut.model_validate(inspect)
+
 
 
 @router.get("/{game_id}/judge")

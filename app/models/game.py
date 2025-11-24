@@ -43,6 +43,9 @@ class Game(Base):
     # ★ 初日白通知ターゲット（GameMember.id）
     seer_first_white_target_id = Column(String(36), ForeignKey("game_members.id"), nullable=True)
 
+    # ★ 直前の昼に処刑されたプレイヤー（霊媒用）
+    last_executed_member_id = Column(String(36), ForeignKey("game_members.id"), nullable=True)
+
     members = relationship(
         "GameMember",
         back_populates="game",
@@ -58,6 +61,12 @@ class Game(Base):
         uselist=False,
     )
 
+    # （必要なら）最後に処刑されたメンバーへのリレーション
+    last_executed_member = relationship(
+        "GameMember",
+        foreign_keys=[last_executed_member_id],
+        uselist=False,
+    )
 
 class GameMember(Base):
     __tablename__ = "game_members"
@@ -108,3 +117,47 @@ class DayVote(Base):
     target_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class SeerInspect(Base):
+    __tablename__ = "seer_inspects"
+
+    id = Column(String, primary_key=True)
+    game_id = Column(String, ForeignKey("games.id"), nullable=False)
+    night_no = Column(Integer, nullable=False)
+
+    seer_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
+    target_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
+
+    # true: 人狼 / false: 人狼ではない
+    is_wolf = Column(Boolean, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class KnightGuard(Base):
+    __tablename__ = "knight_guards"
+
+    id = Column(String, primary_key=True)
+    game_id = Column(String, ForeignKey("games.id"), nullable=False)
+    night_no = Column(Integer, nullable=False)
+
+    knight_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
+    target_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+# app/models/game.py のどこかに追加
+class MediumInspect(Base):
+    __tablename__ = "medium_inspects"
+
+    id = Column(String, primary_key=True)
+    game_id = Column(String, ForeignKey("games.id"), nullable=False)
+    day_no = Column(Integer, nullable=False)
+
+    medium_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
+    target_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
+
+    # true: 人狼陣営 / false: 人狼ではない
+    is_wolf = Column(Boolean, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
