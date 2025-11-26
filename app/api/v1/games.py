@@ -319,7 +319,7 @@ def wolf_vote(
 
     db.commit()
     db.refresh(vote)
-    return WolfVoteOut.model_validate(vote)
+    return WolfVoteOut.model_validate(vote, from_attributes=True)
 
 
 @router.post("/{game_id}/day_vote", response_model=DayVoteOut)
@@ -616,28 +616,86 @@ def decide_roles(n: int) -> list[tuple[str, str]]:
     """
     n人に対する役職構成を返す。
     戻り値: [(role_type, team), ...] * n
+
+    役職:
+      - VILLAGER
+      - WEREWOLF
+      - SEER
+      - MEDIUM
+      - KNIGHT
+      - MADMAN  ← 狂人（狼陣営・能力なし）
     """
+
     if n == 6:
-        base = ["WEREWOLF", "WEREWOLF", "SEER", "KNIGHT", "VILLAGER", "VILLAGER"]
+        # 狼2 / 占1 / 騎1 / 村1 / 狂1
+        base = [
+            "WEREWOLF", "WEREWOLF",
+            "SEER",
+            "KNIGHT",
+            "VILLAGER",
+            "MADMAN",
+        ]
+
     elif n == 7:
-        base = ["WEREWOLF", "WEREWOLF", "SEER", "KNIGHT", "VILLAGER", "VILLAGER", "VILLAGER"]
+        # 狼2 / 占1 / 騎1 / 村2 / 狂1
+        base = [
+            "WEREWOLF", "WEREWOLF",
+            "SEER",
+            "KNIGHT",
+            "VILLAGER", "VILLAGER",
+            "MADMAN",
+        ]
+
     elif n == 8:
-        base = ["WEREWOLF", "WEREWOLF", "SEER", "MEDIUM", "KNIGHT", "VILLAGER", "VILLAGER", "VILLAGER"]
+        # 狼2 / 占1 / 霊1 / 騎1 / 村2 / 狂1
+        base = [
+            "WEREWOLF", "WEREWOLF",
+            "SEER",
+            "MEDIUM",
+            "KNIGHT",
+            "VILLAGER", "VILLAGER",
+            "MADMAN",
+        ]
+
     elif n == 9:
-        base = ["WEREWOLF", "WEREWOLF", "SEER", "MEDIUM", "KNIGHT"] + ["VILLAGER"] * 4
+        # 狼2 / 占1 / 霊1 / 騎1 / 村3 / 狂1
+        base = [
+            "WEREWOLF", "WEREWOLF",
+            "SEER",
+            "MEDIUM",
+            "KNIGHT",
+            "VILLAGER", "VILLAGER", "VILLAGER",
+            "MADMAN",
+        ]
+
     elif n == 10:
-        base = ["WEREWOLF", "WEREWOLF", "SEER", "MEDIUM", "KNIGHT"] + ["VILLAGER"] * 5
+        # 狼2 / 占1 / 霊1 / 騎1 / 村4 / 狂1
+        base = [
+            "WEREWOLF", "WEREWOLF",
+            "SEER",
+            "MEDIUM",
+            "KNIGHT",
+            "VILLAGER", "VILLAGER", "VILLAGER", "VILLAGER",
+            "MADMAN",
+        ]
+
     else:
-        # 雑なデフォルト：狼 = n//4人、他は SEER/MEDIUM/KNIGHT + 村人
+        # デフォルト:
+        #  - 狼 = max(2, n // 4)
+        #  - SEER / MEDIUM / KNIGHT / MADMAN を1人ずつ
+        #  - 残りは VILLAGER
         wolves = max(2, n // 4)
-        base = ["WEREWOLF"] * wolves + ["SEER", "MEDIUM", "KNIGHT"]
+        base = ["WEREWOLF"] * wolves + ["SEER", "MEDIUM", "KNIGHT", "MADMAN"]
         while len(base) < n:
             base.append("VILLAGER")
 
     def to_team(role: str) -> str:
-        return "WOLF" if role == "WEREWOLF" else "VILLAGE"
+        # 狼陣営：WEREWOLF + MADMAN
+        return "WOLF" if role in ("WEREWOLF", "MADMAN") else "VILLAGE"
 
     return [(r, to_team(r)) for r in base]
+
+
 
 @router.get("/{game_id}/day_tally", response_model=DayTallyOut)
 def day_tally(
@@ -780,7 +838,7 @@ def get_or_create_seer_first_white(
 ):
     """
     初日白通知API:
-    - まだ白通知ターゲットが決まっていなければ、村陣営からランダムに1人選び、
+    - まだ白通知ターゲットが決まっていなければ、人狼（WEREWOLF）以外からランダムに1人選び、
       game.seer_first_white_target_id に保存する。
     - すでに決まっていれば、その情報を返す（idempotent）。
     - 前提: このゲームに占い師(SEER)が1人存在する。
@@ -821,7 +879,7 @@ def get_or_create_seer_first_white(
         db.query(GameMember)
         .filter(
             GameMember.game_id == game_id,
-            GameMember.team == "VILLAGE",   # 村陣営
+            GameMember.role_type != "WEREWOLF",  # 人狼以外は候補にする
             GameMember.id != seer.id,       # 占い師本人は除外
         )
         .all()
@@ -913,8 +971,8 @@ def seer_inspect(
             detail="Seer already inspected someone this night",
         )
 
-    # 判定ロジック：team == "WOLF" なら人狼側
-    is_wolf = (target.team == "WOLF")
+    # 判定ロジック：role_type が WEREWOLF のときだけ黒
+    is_wolf = (target.role_type == "WEREWOLF")
 
     inspect = SeerInspect(
         id=str(uuid.uuid4()),
@@ -928,7 +986,7 @@ def seer_inspect(
     db.commit()
     db.refresh(inspect)
 
-    return SeerInspectOut.model_validate(inspect)
+    return SeerInspectOut.model_validate(inspect, from_attributes=True)
 
 
 @router.post(
@@ -1025,7 +1083,7 @@ def knight_guard(
     db.commit()
     db.refresh(guard)
 
-    return KnightGuardOut.model_validate(guard)
+    return KnightGuardOut.model_validate(guard, from_attributes=True)
 
 
 @router.post(
@@ -1092,8 +1150,8 @@ def medium_inspect(
             detail="Medium already inspected for this day",
         )
 
-    # 判定ロジック：team == "WOLF" なら人狼陣営
-    is_wolf = (executed.team == "WOLF")
+    # 判定ロジック：role_type が WEREWOLF のときだけ黒
+    is_wolf = (executed.role_type == "WEREWOLF")
 
     inspect = MediumInspect(
         id=str(uuid.uuid4()),
@@ -1107,7 +1165,7 @@ def medium_inspect(
     db.commit()
     db.refresh(inspect)
 
-    return MediumInspectOut.model_validate(inspect)
+    return MediumInspectOut.model_validate(inspect, from_attributes=True)
 
 
 

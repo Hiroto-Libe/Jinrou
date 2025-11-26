@@ -78,7 +78,7 @@ class GameMember(Base):
     display_name = Column(String, nullable=False)
     avatar_url = Column(String, nullable=True)
 
-    role_type = Column(String, nullable=False)  # 'VILLAGER','WEREWOLF','SEER','MEDIUM','KNIGHT'
+    role_type = Column(String, nullable=False)  # 'VILLAGER','WEREWOLF','SEER','MEDIUM','KNIGHT','MADMAN'
     team = Column(String, nullable=False)       # 'VILLAGE' or 'WOLF'
 
     alive = Column(Boolean, nullable=False, default=True)
