@@ -52,7 +52,7 @@ UI で利用するフェーズ名：
 | 占い師 | SEER | VILLAGE | 夜に陣営判定 |
 | 霊媒師 | MEDIUM | VILLAGE | 前日の処刑者の陣営判定 |
 | 騎士 | KNIGHT | VILLAGE | 夜に護衛 |
-| 狂人（NEW） | MADMAN | WOLF | 能力なし（村側偽装） |
+| 狂人（NEW） | MADMAN | VILLAGE | 能力なし（村側偽装） |
 
 10人例の基本構成：狼2/村4/占1/霊1/騎1/狂1
 人数に応じて **自動で役職構成を割り振る**
@@ -60,7 +60,7 @@ UI で利用するフェーズ名：
 
 ## 2.2 狂人の仕様
 
-- team = "WOLF"
+- team = "VILLAGE"
 - role_type = "MADMAN"
 - 占い師・霊媒師から黒判定
 - 人狼襲撃には参加しない
