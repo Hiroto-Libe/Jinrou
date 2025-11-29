@@ -14,9 +14,14 @@ from ...schemas.room import (
     RoomRosterItem,
     RoomMemberListItem,
     BulkMembersFromRosterRequest,
+    RoomRosterJoinRequest,  
 )
+from app.schemas.room import RoomRosterItem, RoomRosterJoinRequest
 
-router = APIRouter(prefix="/rooms", tags=["rooms"])
+router = APIRouter(
+    prefix="/rooms",   # ★ ここを /rooms に固定
+    tags=["rooms"],
+)
 
 
 # -----------------------------
@@ -53,27 +58,36 @@ def list_rooms(
 @router.post("/{room_id}/roster", response_model=RoomRosterItem)
 def add_to_roster(
     room_id: str,
-    data: RoomRosterCreate,
+    data: RoomRosterJoinRequest,  # ★ 正しいシグネチャ
     db: Session = Depends(get_db_dep),
 ):
+    # 1. room の存在チェック
     room = db.get(Room, room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
 
-    profile = db.get(Profile, data.profile_id)
-    if not profile or profile.is_deleted:
-        raise HTTPException(status_code=404, detail="Profile not found")
+    # 2. display_name から Profile を新規作成（簡易実装）
+    profile = Profile(
+        id=str(uuid.uuid4()),
+        display_name=data.display_name,
+        avatar_url=None,
+        is_deleted=False,
+    )
+    db.add(profile)
+    db.flush()  # profile.id を取得するため
 
+    # 3. RoomRoster を作成
     roster = RoomRoster(
         id=str(uuid.uuid4()),
         room_id=room_id,
-        profile_id=data.profile_id,
-        alias_name=data.alias_name,
+        profile_id=profile.id,
+        alias_name=None,
     )
     db.add(roster)
     db.commit()
     db.refresh(roster)
 
+    # 4. レスポンス用に整形
     display_name = roster.alias_name or profile.display_name
     return RoomRosterItem(
         id=roster.id,
@@ -82,6 +96,7 @@ def add_to_roster(
         alias_name=roster.alias_name,
         avatar_url=profile.avatar_url,
     )
+
 
 
 @router.get("/{room_id}/roster", response_model=list[RoomRosterItem])
@@ -126,29 +141,36 @@ def list_roster(
 )
 def create_members_from_roster(
     room_id: str,
-    body: BulkMembersFromRosterRequest,
+    body: BulkMembersFromRosterRequest | None = None,
     db: Session = Depends(get_db_dep),
 ):
     room = db.get(Room, room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
 
-    if not body.profile_ids:
-        return []
-
-    # 対象の roster + profile を取得
-    q = (
+    # ベースのクエリ：その部屋の有効な roster 全員
+    base_q = (
         db.query(RoomRoster, Profile)
         .join(Profile, RoomRoster.profile_id == Profile.id)
         .filter(
             RoomRoster.room_id == room_id,
-            RoomRoster.profile_id.in_(body.profile_ids),
             Profile.is_deleted == False,  # noqa: E712
         )
     )
 
+    # body があり、profile_ids が指定されている場合だけ絞り込む
+    if body is not None and body.profile_ids:
+        q = base_q.filter(RoomRoster.profile_id.in_(body.profile_ids))
+    else:
+        # body なし or profile_ids 空 → roster 全員を対象
+        q = base_q
+
+    rows = q.all()
+    if not rows:
+        return []
+
     members: list[RoomMember] = []
-    for rr, prof in q.all():
+    for rr, prof in rows:
         display_name = rr.alias_name or prof.display_name
         m = RoomMember(
             id=str(uuid.uuid4()),
@@ -164,6 +186,7 @@ def create_members_from_roster(
         db.refresh(m)
 
     return [RoomMemberListItem.model_validate(m) for m in members]
+
 
 
 @router.get("/{room_id}/members", response_model=list[RoomMemberListItem])

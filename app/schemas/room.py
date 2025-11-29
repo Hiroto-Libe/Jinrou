@@ -1,8 +1,12 @@
 # app/schemas/room.py
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 
+class RoomRosterJoinRequest(BaseModel):
+    display_name: str
 
+    model_config = ConfigDict(from_attributes=True)
+    
 class RoomCreate(BaseModel):
     name: str
     owner_profile_id: Optional[str] = None

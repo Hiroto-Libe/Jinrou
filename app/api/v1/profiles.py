@@ -10,6 +10,20 @@ from ...schemas.profile import ProfileCreate, ProfileOut
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 
+@router.get("/{profile_id}", response_model=ProfileOut)
+def get_profile(
+    profile_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    profile = db.get(Profile, profile_id)
+    # 物理削除でも論理削除でも OK
+    # - 物理削除: db.get(...) が None → 404
+    # - 論理削除: is_deleted = True → 404
+    if not profile or getattr(profile, "is_deleted", False):
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    return profile
+
 
 @router.post("", response_model=ProfileOut)
 def create_profile(

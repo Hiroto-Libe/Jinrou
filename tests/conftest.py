@@ -1,36 +1,37 @@
 # tests/conftest.py
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from app.db import Base
+from sqlalchemy.orm import Session
+from fastapi.testclient import TestClient
 
-# テスト用 SQLite メモリDB
-TEST_DATABASE_URL = "sqlite:///:memory:"
+from app.db import Base, engine, SessionLocal
+from app.main import app
 
-# Engine と SessionLocal をテスト専用に構築
-engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
-)
+# Room を Base に登録しておく（他のモデルも __init__ 経由で import 済みなら不要）
+from app.models.room import Room  # noqa: F401
+
 
 @pytest.fixture(scope="function")
-def db():
+def db() -> Session:
     """
-    すべてのテストで共通して利用するテスト用 DB セッション。
-    テストごとに:
-      1. テーブルを create_all で構築
-      2. セッションを yield で渡す
-      3. テスト終了後に drop_all で完全削除してクリーン化
+    テストごとにクリーンな DB を用意するフィクスチャ。
+    アプリ本体と同じ engine を使う。
     """
-    # テストごとに完全な空DBを作成
+    # 既存テーブルを全部削除してから、再作成
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
-    session = TestingSessionLocal()
+    session = SessionLocal()
     try:
         yield session
     finally:
         session.close()
-        # テーブルを完全削除（次のテストをまっさらにする）
-        Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(scope="function")
+def client() -> TestClient:
+    """
+    通常の FastAPI app をそのまま使う TestClient。
+    DI の上書きは行わない。
+    """
+    with TestClient(app) as c:
+        yield c
