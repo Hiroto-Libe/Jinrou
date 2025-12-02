@@ -108,7 +108,7 @@ resolve_day_simple()
 {
   "victim": { "id": "xxxx", "role": "VILLAGER" },
   "guarded_success": false,
-  "status": {"DAY_DISCUSSION" | "WOLF_WIN" | "VILLAGE_WIN"}
+  "status": "DAY_DISCUSSION" \| "WOLF_WIN" \| "VILLAGE_WIN"
 }
 ```
 
