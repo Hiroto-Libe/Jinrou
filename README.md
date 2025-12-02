@@ -17,7 +17,7 @@ FastAPI × SQLite × SQLAlchemy で構築した **ローカル同室プレイ向
 ---
 
 # 🏗️ アーキテクチャ概要
-
+```text 
 app/
 ├── api/
 │ ├── v1/
@@ -33,7 +33,7 @@ app/
 ├── schemas/ … Pydantic スキーマ
 ├── core/logic/ … resolve_day / resolve_night などゲーム進行ロジック
 └── main.py … FastAPI エントリポイント
-
+```
 
 ---
 
