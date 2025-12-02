@@ -110,6 +110,7 @@ resolve_day_simple()
   "guarded_success": false,
   "status": "DAY_DISCUSSION" | "WOLF_WIN" | "VILLAGE_WIN"
 }
+```
 
 ## 🌓 resolve_day_simple（昼フェーズ処理）
 
