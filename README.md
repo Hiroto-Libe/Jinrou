@@ -118,15 +118,40 @@ resolve_day_simple()
 
 ### 🔁 処理フロー
 
+## resolve_day_simple
+
 1. 現在のゲーム状態が `DAY_DISCUSSION` であることを確認  
-2. 投票（DayVote）を全取得  
-3. 最多票のプレイヤーを選出  
-4. 生存フラグ（alive）を False に更新  
-5. `last_executed_member_id` に記録  
-6. **勝敗判定（judge_game_result）** を実行  
-7. 状態を以下のいずれかに更新  
-   - `NIGHT`（ゲーム継続）  
-   - `FINISHED`（勝敗がついた場合）
+2. 対象日の投票（`DayVote`）を全取得  
+3. 最多票のプレイヤーを選出（同票の場合はランダムに 1 名）  
+4. 選出されたプレイヤーの生存フラグ（`alive`）を `False` に更新  
+5. 処刑されたプレイヤーの ID を `last_executed_member_id` に記録  
+6. **勝敗判定（`judge_game_result`）** を実行  
+7. 判定結果に応じて状態を更新  
+   - 勝敗未決（`ONGOING`）の場合: `status = "NIGHT"` に遷移し、`curr_day` / `curr_night` をインクリメント  
+   - 勝敗確定の場合:  
+     - `status = "FINISHED"`  
+     - `result` に `"VILLAGE_WIN"` / `"WOLF_WIN"` を保存  
+
+戻り値の例:
+
+```json
+{
+  "game_id": "xxxx",
+  "day_no": 1,
+  "status": "NIGHT" | "FINISHED",
+  "victim": {
+    "id": "member-uuid",
+    "display_name": "太郎",
+    "role_type": "VILLAGER",
+    "team": "VILLAGE",
+    "alive": false
+  },
+  "tally": {
+    "target_member_id": "member-uuid",
+    "vote_count": 3
+  }
+}
+```
 
 ---
 

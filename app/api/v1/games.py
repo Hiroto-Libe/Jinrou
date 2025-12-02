@@ -883,12 +883,17 @@ def resolve_day_simple(
     db: Session = Depends(get_db_dep),
 ):
     """
-    シンプル版の昼決着:
-    - 現在の day_no の投票を集計
-    - 最多得票者を一人追放（alive=False）
-    - 同票ならランダムに選ぶ
-    - Game.status を NIGHT に変更し、curr_day/curr_night を進める
-    ※ 勝敗判定はここではまだしない（後で拡張）
+    - 現在の `day_no` の投票を集計
+    - 最多得票者を 1 人処刑（`alive = False`）
+    - 同票ならランダムに 1 人を選ぶ
+    - 昼の処刑後に **勝敗判定（judge_game_result）** を実施
+        - 判定結果が `VILLAGE_WIN` / `WOLF_WIN` の場合  
+            - `Game.status = "FINISHED"`  
+            - `Game.result` に勝敗（`"VILLAGE_WIN"` / `"WOLF_WIN"`）を保存  
+            - **夜フェーズには遷移しない**
+        - 判定結果が `ONGOING` の場合のみ  
+            - `Game.status = "NIGHT"` に遷移  
+            - `curr_day`, `curr_night` をインクリメント
     """
     game = db.get(Game, game_id)
     if not game:
@@ -917,40 +922,56 @@ def resolve_day_simple(
 
     max_votes = max(int(r.vote_count) for r in rows)
     candidates = [r for r in rows if int(r.vote_count) == max_votes]
-
     chosen = random.choice(candidates)
 
     victim = db.get(GameMember, chosen.target_member_id)
     if not victim:
         raise HTTPException(status_code=500, detail="Victim GameMember not found")
 
+    # 昼の処刑反映
     victim.alive = False
-
-    # ★ この昼に処刑されたプレイヤーを記録
-    game.last_executed_member_id = victim.id
-
-    # 次の夜へ進める（シンプル版）
-    game.status = "NIGHT"
-    game.curr_day = game.curr_day + 1
-    game.curr_night = game.curr_night + 1
-
     db.add(victim)
+
+    # この昼に処刑されたプレイヤーを記録
+    game.last_executed_member_id = victim.id
     db.add(game)
     db.commit()
     db.refresh(victim)
     db.refresh(game)
 
-    # --- ★ 勝敗判定（昼の処刑後） ---
+    # ★ 昼の処刑後に勝敗判定
     judge = _judge_game_result(game.id, db)
+
     if judge["result"] != "ONGOING":
-        game.status = judge["result"]      # "VILLAGE_WIN" or "WOLF_WIN"
+        # 村人勝利 or 人狼勝利 → 夜には遷移せず終了
+        game.status = "FINISHED"
+        # ゲーム結果として保持（必要なら）
+        if hasattr(game, "result"):
+            game.result = judge["result"]  # "VILLAGE_WIN" or "WOLF_WIN"
+        if hasattr(game, "finished"):
+            game.finished = True
+
+        db.add(game)
         db.commit()
         db.refresh(game)
+
+        next_status = judge["result"]  # レスポンスとしては勝敗をそのまま返す
+    else:
+        # まだゲーム継続 → ここで初めて NIGHT へ進める
+        game.status = "NIGHT"
+        game.curr_day = game.curr_day + 1
+        game.curr_night = game.curr_night + 1
+
+        db.add(game)
+        db.commit()
+        db.refresh(game)
+
+        next_status = "NIGHT"
 
     return {
         "game_id": game.id,
         "day_no": day_no,
-        "status": game.status,
+        "status": next_status,  # "NIGHT" / "VILLAGE_WIN" / "WOLF_WIN"
         "victim": {
             "id": victim.id,
             "display_name": victim.display_name,
@@ -963,6 +984,7 @@ def resolve_day_simple(
             "vote_count": max_votes,
         },
     }
+
 
 
 @router.get("/{game_id}/seer/first_white", response_model=SeerFirstWhiteOut)
