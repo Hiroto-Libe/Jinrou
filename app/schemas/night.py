@@ -1,6 +1,6 @@
 # app/schemas/night.py
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Literal
 
 
@@ -10,19 +10,20 @@ class WolfVoteCreate(BaseModel):
     target_member_id: str
     priority_level: Literal[1, 2, 3]
 
+class WolfVoteIn(BaseModel):
+    wolf_member_id: str
+    target_member_id: str
+    priority_level: int = 1
 
 class WolfVoteOut(BaseModel):
-    """1件の人狼投票の結果返却用"""
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     game_id: str
     night_no: int
     wolf_member_id: str
     target_member_id: str
     priority_level: int
-    points_at_vote: int
-
-    class Config:
-        from_attributes = True
 
 
 class WolfTallyItem(BaseModel):

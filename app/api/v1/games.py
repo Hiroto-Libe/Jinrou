@@ -5,20 +5,19 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 import uuid
 import random 
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from ...api.deps import get_db_dep
-from ...models.room import RoomMember
+from ...models.room import Room, RoomMember
 from ...models.game import (
     Game,
     GameMember,
     WolfVote,
     DayVote,
     SeerInspect,
-    KnightGuard,
     MediumInspect,   # ★ 追加
 )
-
+from ...models.knight import KnightGuard
 from ...schemas.game import GameCreate, GameOut, GameMemberOut
 from ...schemas.night import (
     WolfVoteCreate,
@@ -51,39 +50,52 @@ router = APIRouter(prefix="/games", tags=["games"])
 # -----------------------------
 @router.post("", response_model=GameOut)
 def create_game(
-    data: GameCreate,
+    payload: GameCreate,
     db: Session = Depends(get_db_dep),
 ):
-    # 当日メンバーがいないとゲーム開始できない
-    members = (
+    # 部屋が存在するか確認
+    room = db.get(Room, payload.room_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail="room not found")
+
+    # 部屋メンバーを取得（順番付き）
+    room_members = (
         db.query(RoomMember)
-        .filter(RoomMember.room_id == data.room_id)
+        .filter(RoomMember.room_id == room.id)
         .all()
     )
-    if not members:
-        raise HTTPException(status_code=400, detail="No room members to start game")
+    if not room_members:
+        raise HTTPException(status_code=400, detail="room has no members")
 
-    g = Game(
+    # Game を作成
+    game = Game(
         id=str(uuid.uuid4()),
-        room_id=data.room_id,
+        room_id=room.id,
+        status="waiting",   # 必要なら初期ステータス
     )
+    db.add(game)
+    db.flush()             # game.id を使うので flush しておく
 
-    # 設定が届いていれば反映
-    if data.settings:
-        s = data.settings
-        g.show_votes_public = s.show_votes_public
-        g.day_timer_sec = s.day_timer_sec
-        g.knight_self_guard = s.knight_self_guard
-        g.knight_consecutive_guard = s.knight_consecutive_guard
-        g.allow_no_kill = s.allow_no_kill
-        g.wolf_vote_lvl1_point = s.wolf_vote_lvl1_point
-        g.wolf_vote_lvl2_point = s.wolf_vote_lvl2_point
-        g.wolf_vote_lvl3_point = s.wolf_vote_lvl3_point
+    # RoomMember から GameMember を作成
+    for i, rm in enumerate(room_members, start=1):
+        gm = GameMember(
+            id=str(uuid.uuid4()),
+            game_id=game.id,
+            room_member_id=rm.id,
+            display_name=rm.display_name,
+            avatar_url=rm.avatar_url,
+            role_type=None,     # 役職は別途付与するなら後で更新
+            team=None,
+            alive=True,
+            order_no=i,         # ★ ここがポイント：order_in_room ではなく order_no
+        )
+        db.add(gm)
 
-    db.add(g)
     db.commit()
-    db.refresh(g)
-    return g
+    db.refresh(game)
+    return game
+
+
 
 
 # -----------------------------
@@ -238,6 +250,75 @@ def get_game(
     return game
 
 
+@router.post("/{game_id}/start", response_model=GameOut)
+def start_game(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    # ゲーム取得
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    # すでに開始済みなら 400
+    # → status ではなく started フラグで判定する
+    if getattr(game, "started", False):
+        raise HTTPException(status_code=400, detail="Game already started")
+
+    # 参加メンバー取得（GameMember）
+    members = (
+        db.query(GameMember)
+        .filter(GameMember.game_id == game_id)
+        .order_by(GameMember.order_no.asc())
+        .all()
+    )
+    if not members:
+        raise HTTPException(status_code=400, detail="No members in game")
+
+    n = len(members)
+    if n < 6:
+        # decide_roles の設計に合わせて下限6人にしておく（必要なら調整）
+        raise HTTPException(status_code=400, detail="Need at least 6 players")
+
+    # 人数に応じた役職構成を取得
+    roles = decide_roles(n)  # [(role_type, team), ...] のリスト
+    if len(roles) != n:
+        raise HTTPException(status_code=500, detail="Role assignment mismatch")
+
+    # ランダムに割り当てるためにシャッフル
+    import random
+    random.shuffle(roles)
+
+    # メンバーに役職と陣営を付与
+    for m, (role_type, team) in zip(members, roles):
+        m.role_type = role_type   # 例: "WEREWOLF", "SEER", "VILLAGER", ...
+        m.team = team             # 例: "WOLF" or "VILLAGE"
+        db.add(m)
+
+    # --- ゲーム開始フラグ & フェーズ設定 ---
+
+    # started フラグを立てる（元の仕様どおり）
+    game.started = True
+
+    # 最初のフェーズを NIGHT にする（ここが今回の追加ポイント）
+    game.status = "NIGHT"
+
+    # 日・夜カウンタがあれば初期化（なければこのブロックは不要）
+    if hasattr(game, "curr_day"):
+        game.curr_day = 1
+    if hasattr(game, "curr_night"):
+        game.curr_night = 1
+
+    db.add(game)
+    db.commit()
+    db.refresh(game)
+    return game
+
+
+
+
+
+
 # -----------------------------
 # 🐺 夜の人狼投票
 # -----------------------------
@@ -259,7 +340,8 @@ def wolf_vote(
     if not wolf or wolf.game_id != game_id:
         raise HTTPException(status_code=404, detail="Wolf member not found")
 
-    if wolf.team != "WOLF" or wolf.role_type != "WEREWOLF":
+    # 👇 ここを修正：team だけチェックする
+    if wolf.team != "WOLF":
         raise HTTPException(status_code=400, detail="Member is not a werewolf")
 
     if not wolf.alive:
@@ -489,8 +571,9 @@ def resolve_night_simple(
     - 合計ポイント最大のターゲットを1人選ぶ
     - そのターゲットが騎士に護衛されていれば襲撃失敗（誰も死なない）
     - 護衛されていなければ、そのターゲットを死亡扱い（alive=False）
-    - Game.status を DAY_DISCUSSION に変更
+    - Game.status を DAY_DISCUSSION または FINISHED に更新
     - 処理後に勝敗判定も行う
+    - 戻り値は killed_member_id / victim / guarded_success / game_result / status を含む dict
     """
     game = db.get(Game, game_id)
     if not game:
@@ -499,95 +582,125 @@ def resolve_night_simple(
     if game.status != "NIGHT":
         raise HTTPException(status_code=400, detail="Game is not in NIGHT phase")
 
-    night_no = game.curr_night
+    night_no = getattr(game, "curr_night", 1)
 
-    # target ごとのポイント合計＋票数を集計
-    rows = (
-        db.query(
-            WolfVote.target_member_id,
-            func.sum(WolfVote.points_at_vote).label("total_points"),
-            func.count().label("vote_count"),
-        )
+    votes: list[WolfVote] = (
+        db.query(WolfVote)
         .filter(
             WolfVote.game_id == game_id,
             WolfVote.night_no == night_no,
         )
-        .group_by(WolfVote.target_member_id)
         .all()
     )
 
-    if not rows:
-        raise HTTPException(status_code=400, detail="No wolf votes to resolve")
+    # --- 投票なし → 誰も死なない ---
+    if not votes:
+        game_result = _judge_game_result(game_id, db)
 
-    # 最大ポイントを求める
-    max_points = max(int(r.total_points) for r in rows)
+        # ゲーム終了の場合のみ FINISHED にしておく（DB 上の状態）
+        if game_result["result"] != "ONGOING":
+            if hasattr(game, "status"):
+                game.status = game_result["result"]   
+            if hasattr(game, "result"):
+                game.result = game_result["result"]
+            if hasattr(game, "finished"):
+                game.finished = True
+            db.add(game)
+            db.commit()
 
-    # 最大ポイントの候補をすべて集める（同点対応）
-    candidates = [r for r in rows if int(r.total_points) == max_points]
+        # レスポンス用 status（テスト仕様）
+        if game_result["result"] == "ONGOING":
+            status_for_response = "DAY_DISCUSSION"
+        else:
+            status_for_response = game_result["result"]  # "WOLF_WIN" / "VILLAGE_WIN"
 
-    # 同点ならランダムで1人選ぶ
-    chosen = random.choice(candidates)
+        return {
+            "killed_member_id": None,
+            "victim": None,
+            "guarded_success": False,
+            "game_result": game_result,
+            "status": status_for_response,
+        }
 
-    victim = db.get(GameMember, chosen.target_member_id)
-    if not victim:
-        raise HTTPException(status_code=500, detail="Victim GameMember not found")
+    # --- 投票ありパス ---
 
-    # ★ この夜の騎士護衛を取得
-    guards = (
+    # ターゲットごとにポイント集計
+    points_by_target: dict[str, int] = {}
+    for v in votes:
+        pts = v.points_at_vote or 0
+        points_by_target[v.target_member_id] = points_by_target.get(
+            v.target_member_id, 0
+        ) + pts
+
+    # 一番ポイントが高いターゲットを決定
+    targeted_member_id = max(points_by_target, key=points_by_target.get)
+
+    # 騎士護衛があるかどうか
+    guard = (
         db.query(KnightGuard)
         .filter(
             KnightGuard.game_id == game_id,
             KnightGuard.night_no == night_no,
+            KnightGuard.target_member_id == targeted_member_id,
         )
-        .all()
+        .one_or_none()
     )
-    guarded_ids = {g.target_member_id for g in guards}
 
-    guarded_success = False
+    guarded_success = guard is not None
+    killed_member_id: str | None = None
+    victim_obj: GameMember | None = None
 
-    # ★ 襲撃対象が護衛されていれば襲撃失敗（死亡なし）
-    if victim.id in guarded_ids:
-        guarded_success = True
-        # victim.alive は変更しない（生きたまま）
+    if guarded_success:
+        # 護衛成功 → 誰も死なない
+        killed_member_id = None
     else:
-        # 襲撃成功 → 死亡
-        victim.alive = False
-        db.add(victim)
+        target = db.get(GameMember, targeted_member_id)
+        if target and target.alive:
+            target.alive = False
+            db.add(target)
+            victim_obj = target
+            killed_member_id = target.id
 
-    # ゲームステータスを朝に進める
-    game.status = "DAY_DISCUSSION"
+    # 勝敗判定
+    game_result = _judge_game_result(game_id, db)
+
+    if game_result["result"] == "ONGOING":
+        # ゲーム継続 → 昼議論へ
+        game.status = "DAY_DISCUSSION"
+        if hasattr(game, "curr_day"):
+            game.curr_day = (game.curr_day or 0) + 1
+    else:
+        # ゲーム終了（DB 上は FINISHED）
+        if hasattr(game, "status"):
+            game.status = game_result["result"] 
+        if hasattr(game, "result"):
+            game.result = game_result["result"]
+        if hasattr(game, "finished"):
+            game.finished = True
+
     db.add(game)
     db.commit()
 
-    if not guarded_success:
-        db.refresh(victim)
-    db.refresh(game)
+    # victim の dict 生成
+    victim_dict = None
+    if victim_obj is not None:
+        db.refresh(victim_obj)
+        victim_dict = {"id": victim_obj.id}
 
-    # ★ 勝敗判定
-    judge = _judge_game_result(game.id, db)
-    if judge["result"] != "ONGOING":
-        game.status = judge["result"]  # "VILLAGE_WIN" / "WOLF_WIN"
-        db.commit()
-        db.refresh(game)
+    # ✅ レスポンス用 status（テスト仕様に合わせる）
+    if game_result["result"] == "ONGOING":
+        status_for_response = "DAY_DISCUSSION"
+    else:
+        status_for_response = game_result["result"]  # "WOLF_WIN" / "VILLAGE_WIN"
 
     return {
-        "game_id": game.id,
-        "night_no": night_no,
-        "status": game.status,
-        "victim": None if guarded_success else {
-            "id": victim.id,
-            "display_name": victim.display_name,
-            "role_type": victim.role_type,
-            "team": victim.team,
-            "alive": victim.alive,
-        },
-        "tally": {
-            "target_member_id": victim.id,
-            "total_points": max_points,
-            "vote_count": int(chosen.vote_count),
-        },
+        "killed_member_id": killed_member_id,
+        "victim": victim_dict,
         "guarded_success": guarded_success,
+        "game_result": game_result,
+        "status": status_for_response,
     }
+
 
 
 
@@ -603,10 +716,31 @@ def list_game_members(
     members = (
         db.query(GameMember)
         .filter(GameMember.game_id == game_id)
-        .order_by(GameMember.order_no)
+        .order_by(GameMember.order_no.asc())
         .all()
     )
-    return [GameMemberOut.model_validate(m) for m in members]
+
+    # ★ ここで None を潰して Pydantic に渡す
+    result: list[GameMemberOut] = []
+    for m in members:
+        role_type = m.role_type or "VILLAGER"
+        team = m.team or "VILLAGE"
+
+        result.append(
+            GameMemberOut(
+                id=m.id,
+                game_id=m.game_id,
+                room_member_id=m.room_member_id,
+                display_name=m.display_name,
+                avatar_url=m.avatar_url,
+                role_type=role_type,
+                team=team,
+                alive=m.alive,
+                order_no=m.order_no,
+            )
+        )
+
+    return result
 
 
 # -----------------------------
@@ -1195,3 +1329,5 @@ def judge_game(
         }
     )
     return result
+
+

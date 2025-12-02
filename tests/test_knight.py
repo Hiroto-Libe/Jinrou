@@ -3,7 +3,8 @@ import pytest
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
-from app.models.game import Game, GameMember, KnightGuard
+from app.models.game import Game, GameMember
+from app.models.knight import KnightGuard
 from app.api.v1.games import knight_guard
 from app.schemas.knight import KnightGuardCreate
 

@@ -3,6 +3,14 @@
 from pydantic import BaseModel
 from typing import Optional, Literal
 
+RoleLiteral = Literal[
+    "VILLAGER",
+    "WEREWOLF",
+    "SEER",
+    "MEDIUM",
+    "KNIGHT",
+    "MADMAN",   # ← これを追加
+]
 
 class GameSettings(BaseModel):
     show_votes_public: bool = True
@@ -35,11 +43,14 @@ class GameOut(BaseModel):
 
 class GameMemberOut(BaseModel):
     id: str
+    game_id: str
+    room_member_id: str
     display_name: str
-    avatar_url: Optional[str]
-    role_type: Literal["VILLAGER", "WEREWOLF", "SEER", "MEDIUM", "KNIGHT"]
+    avatar_url: str | None = None
+    role_type: RoleLiteral
     team: Literal["VILLAGE", "WOLF"]
     alive: bool
+    order_no: int
 
     class Config:
         from_attributes = True

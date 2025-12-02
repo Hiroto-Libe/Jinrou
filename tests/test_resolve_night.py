@@ -4,7 +4,9 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from app.models.game import Game, GameMember, WolfVote, KnightGuard
+from app.models.game import Game, GameMember, WolfVote
+from app.models.knight import KnightGuard
+
 from app.api.v1.games import resolve_night_simple
 
 

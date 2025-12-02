@@ -38,6 +38,7 @@ class Game(Base):
     wolf_vote_lvl3_point = Column(Integer, nullable=False, default=1)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started = Column(Boolean, nullable=False, default=False)
     finished_at = Column(DateTime, nullable=True)
 
     # ★ 初日白通知ターゲット（GameMember.id）
@@ -78,8 +79,9 @@ class GameMember(Base):
     display_name = Column(String, nullable=False)
     avatar_url = Column(String, nullable=True)
 
-    role_type = Column(String, nullable=False)  # 'VILLAGER','WEREWOLF','SEER','MEDIUM','KNIGHT','MADMAN'
-    team = Column(String, nullable=False)       # 'VILLAGE' or 'WOLF'
+    # 役職と陣営はゲーム開始時にセットするので、作成時は NULL 許可
+    role_type = Column(String, nullable=True)
+    team = Column(String, nullable=True)
 
     alive = Column(Boolean, nullable=False, default=True)
     order_no = Column(Integer, nullable=False, default=0)
@@ -129,19 +131,6 @@ class SeerInspect(Base):
 
     # true: 人狼 / false: 人狼ではない
     is_wolf = Column(Boolean, nullable=False)
-
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
-
-class KnightGuard(Base):
-    __tablename__ = "knight_guards"
-
-    id = Column(String, primary_key=True)
-    game_id = Column(String, ForeignKey("games.id"), nullable=False)
-    night_no = Column(Integer, nullable=False)
-
-    knight_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
-    target_member_id = Column(String, ForeignKey("game_members.id"), nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
