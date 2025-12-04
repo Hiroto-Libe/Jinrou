@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>Jinrou - 夜フェーズ（占い師）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      background: #020617;
+      color: #e5e7eb;
+    }
+    header {
+      padding: 12px 16px;
+      background: #020617;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #1f2937;
+    }
+    header .room {
+      font-size: 12px;
+      color: #9ca3af;
+    }
+    header .phase-badge {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #4b5563;
+    }
+    main {
+      padding: 16px;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+    .role-card {
+      border-radius: 12px;
+      padding: 16px;
+      background: #111827;
+      border: 1px solid #1f2937;
+      margin-bottom: 16px;
+    }
+    .role-label {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-bottom: 4px;
+    }
+    .role-name {
+      font-size: 18px;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .hint {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 16px 0 8px;
+    }
+    .target-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .target-btn {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 999px;
+      border: 1px solid #374151;
+      background: #020617;
+      color: #e5e7eb;
+      text-align: left;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .target-btn span {
+      pointer-events: none;
+    }
+    .target-btn .sub {
+      font-size: 11px;
+      color: #9ca3af;
+    }
+    .target-btn.selected {
+      border-color: #38bdf8;
+      background: #0f172a;
+    }
+    .primary-btn {
+      width: 100%;
+      padding: 12px;
+      border-radius: 999px;
+      border: none;
+      background: #38bdf8;
+      color: white;
+      font-size: 15px;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+    .primary-btn:disabled {
+      opacity: 0.4;
+    }
+    .info {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 8px;
+      line-height: 1.4;
+    }
+    .result-card {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid #1f2937;
+      background: #020617;
+      font-size: 13px;
+    }
+    .result-card .label {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-bottom: 4px;
+    }
+    .result-card .player {
+      font-weight: 600;
+    }
+    .result-card .white {
+      color: #22c55e;
+    }
+    .result-card .black {
+      color: #f97373;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 16px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div>Jinrou</div>
+      <div class="room">Room: <strong>ABCD</strong></div>
+    </div>
+    <div class="phase-badge">夜フェーズ</div>
+  </header>
+
+  <main>
+    <section class="role-card">
+      <div class="role-label">あなたの役職</div>
+      <div class="role-name">占い師</div>
+      <p class="hint">
+        今夜、<strong>1人</strong>を占って「人狼かどうか」を確認できます。<br>
+        狂人（MADMAN）は占いでは<strong>白</strong>として判定されます。
+      </p>
+    </section>
+
+    <section>
+      <h2 class="section-title">今夜占うプレイヤー</h2>
+
+      <!-- 実装時: 生存中かつ自分以外のプレイヤーを一覧表示 -->
+      <div class="target-list">
+        <button class="target-btn selected">
+          <span>たなか</span>
+          <span class="sub">生存</span>
+        </button>
+        <button class="target-btn">
+          <span>さとう</span>
+          <span class="sub">生存</span>
+        </button>
+        <button class="target-btn">
+          <span>すずき</span>
+          <span class="sub">生存</span>
+        </button>
+      </div>
+
+      <!-- 実装時: 今夜の占いが未実行なら enabled / 実行済なら disabled -->
+      <button class="primary-btn">
+        このプレイヤーを占う
+      </button>
+
+      <p class="info">
+        ※ 占いは<strong>1晩に1回のみ</strong>です。実行後は今夜は再度占えません。<br>
+        ※ 既に占い済みの夜は、API側で 400 を返す想定です。
+      </p>
+    </section>
+
+    <section>
+      <h2 class="section-title">今夜の占い結果</h2>
+
+      <!-- 実装時: レスポンスに応じて内容を差し替え -->
+      <div class="result-card">
+        <div class="label">直近の結果</div>
+        <div>
+          <span class="player">たなか</span> さんは
+          <span class="white">人狼ではありません（白）</span>
+        </div>
+      </div>
+
+      <!-- 例: 人狼だった場合
+      <div class="result-card">
+        <div class="label">直近の結果</div>
+        <div>
+          <span class="player">さとう</span> さんは
+          <span class="black">人狼です（黒）</span>
+        </div>
+      </div>
+      -->
+    </section>
+
+    <div class="status-row">
+      <span>⏱ 残り時間: 01:23</span>
+      <span>👁 今夜の占い: 済</span>
+    </div>
+  </main>
+</body>
+</html>

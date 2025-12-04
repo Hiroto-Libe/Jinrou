@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>Jinrou - 役職確認</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      background: #020617;
+      color: #e5e7eb;
+    }
+    header {
+      padding: 12px 16px;
+      background: #020617;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #1f2937;
+    }
+    header .title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    header .subtitle {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 2px;
+    }
+    header .badge {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #111827;
+      border: 1px solid #374151;
+    }
+    main {
+      padding: 16px;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+    .card {
+      border-radius: 16px;
+      background: radial-gradient(circle at top, #111827, #020617 60%);
+      border: 1px solid #1f2937;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+    }
+    .player-name {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-bottom: 2px;
+    }
+    .display-name {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .role-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    /* 役職ごとの色イメージ（実装時は動的に切り替え） */
+    .role-werewolf {
+      background: rgba(248, 113, 113, 0.1);
+      border: 1px solid #f97373;
+      color: #fecaca;
+    }
+    .role-villager {
+      background: rgba(52, 211, 153, 0.08);
+      border: 1px solid #34d399;
+      color: #bbf7d0;
+    }
+    .role-seer {
+      background: rgba(129, 140, 248, 0.1);
+      border: 1px solid #818cf8;
+      color: #c7d2fe;
+    }
+    .role-knight {
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid #38bdf8;
+      color: #bae6fd;
+    }
+    .team-label {
+      font-size: 12px;
+      margin-bottom: 12px;
+      color: #e5e7eb;
+    }
+    .team-label span {
+      font-weight: 700;
+    }
+    .team-wolf {
+      color: #fecaca;
+    }
+    .team-village {
+      color: #bbf7d0;
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin: 12px 0 4px;
+    }
+    .text {
+      font-size: 12px;
+      color: #e5e7eb;
+      line-height: 1.5;
+    }
+    .text-muted {
+      font-size: 11px;
+      color: #9ca3af;
+      line-height: 1.5;
+    }
+    ul {
+      margin: 4px 0 0;
+      padding-left: 18px;
+      font-size: 12px;
+      color: #e5e7eb;
+    }
+    li {
+      margin-bottom: 4px;
+    }
+    .warning {
+      margin-top: 12px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: rgba(248, 113, 113, 0.08);
+      border: 1px dashed #f97373;
+      font-size: 11px;
+      color: #fecaca;
+    }
+    .primary-btn, .secondary-btn {
+      width: 100%;
+      max-width: 480px;
+      display: block;
+      padding: 12px;
+      border-radius: 999px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      margin: 12px auto 0;
+    }
+    .primary-btn {
+      background: #2563eb;
+      color: #ffffff;
+    }
+    .secondary-btn {
+      background: transparent;
+      border: 1px solid #4b5563;
+      color: #e5e7eb;
+    }
+    .hint {
+      font-size: 11px;
+      color: #6b7280;
+      text-align: center;
+      margin-top: 8px;
+    }
+    footer {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 12px 16px 20px;
+      font-size: 11px;
+      color: #6b7280;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="title">Jinrou</div>
+      <div class="subtitle">あなたの役職</div>
+    </div>
+    <div class="badge">秘密</div>
+  </header>
+
+  <main>
+    <section class="card">
+      <!-- 実装時：API から自分の display_name / role_type / team を取得して表示 -->
+      <div class="player-name">プレイヤー</div>
+      <div class="display-name">いとう</div>
+
+      <!-- 例: 人狼 / 狼陣営 -->
+      <!-- role-villager / role-seer / role-knight などに切り替え -->
+      <div class="role-badge role-werewolf">
+        <span>🩸 人狼</span>
+      </div>
+
+      <div class="team-label">
+        あなたは <span class="team-wolf">狼陣営</span> です
+      </div>
+
+      <div class="section-title">勝利条件</div>
+      <p class="text">
+        人狼陣営の生存数（人狼 + 狂人）が、<br />
+        村人陣営の生存数以上になると勝利です。
+      </p>
+
+      <div class="section-title">あなたの能力</div>
+      <p class="text">
+        毎晩、仲間の人狼と相談して村人を1人襲撃できます。<br />
+        複数の人狼が同じ対象に投票した場合、そのプレイヤーが襲撃されます。
+      </p>
+
+      <div class="section-title">今夜できること</div>
+      <ul>
+        <li>夜フェーズで「誰を襲撃するか」を1人選んで投票</li>
+        <li>他の人狼が誰に投票したかは結果だけ反映（UI で表示）</li>
+        <li>投票を変更できる場合は、夜時間中に何度でも上書き</li>
+      </ul>
+
+      <div class="warning">
+        スマホの画面を他のプレイヤーに見せないでください。<br />
+        役職がバレるとゲームが成立しなくなります。
+      </div>
+    </section>
+
+    <button class="primary-btn">
+      役職を理解した（次へ進む）
+    </button>
+    <p class="hint">
+      ※ 実装時はサーバーに「準備OK」を送信し、全員準備完了後にゲーム開始（夜 or 昼）へ進む想定です。
+    </p>
+  </main>
+
+  <footer>
+    ※ この画面は <code>GET /games/{game_id}/me</code> などで<br />
+    自分の役職情報だけを取得して表示する想定です。
+  </footer>
+</body>
+</html>

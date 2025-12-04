@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>Jinrou - ルーム参加 / 作成</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      background: #020617;
+      color: #e5e7eb;
+    }
+    header {
+      padding: 12px 16px;
+      background: #020617;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #1f2937;
+    }
+    header .title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    header .subtitle {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 2px;
+    }
+    header .badge {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #111827;
+      border: 1px solid #374151;
+    }
+    main {
+      padding: 16px;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin: 16px 0 8px;
+    }
+    .small {
+      font-size: 11px;
+      color: #9ca3af;
+    }
+    .card {
+      border-radius: 12px;
+      background: #020617;
+      border: 1px solid #1f2937;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+    .input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #374151;
+      background: #020617;
+      color: #e5e7eb;
+      font-size: 13px;
+      box-sizing: border-box;
+      margin-top: 4px;
+    }
+    .input::placeholder {
+      color: #6b7280;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .row > .input {
+      margin-top: 0;
+    }
+    .small-btn {
+      padding: 0 12px;
+      border-radius: 10px;
+      border: none;
+      background: #4b5563;
+      color: #e5e7eb;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .primary-btn, .secondary-btn {
+      width: 100%;
+      max-width: 480px;
+      display: block;
+      padding: 12px;
+      border-radius: 999px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      margin: 8px auto 0;
+    }
+    .primary-btn {
+      background: #2563eb;
+      color: #ffffff;
+    }
+    .secondary-btn {
+      background: transparent;
+      border: 1px solid #4b5563;
+      color: #e5e7eb;
+    }
+    .label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .hint {
+      font-size: 10px;
+      color: #6b7280;
+    }
+    footer {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 12px 16px 20px;
+      font-size: 11px;
+      color: #6b7280;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="title">Jinrou</div>
+      <div class="subtitle">ルーム参加 / 作成</div>
+    </div>
+    <div class="badge">Room Join</div>
+  </header>
+
+  <main>
+    <!-- 参加（一般プレイヤー） -->
+    <section class="card">
+      <div class="section-title">ルームに参加する</div>
+      <p class="small">
+        友だちが「ルームコード」を作ってくれている場合は、<br />
+        あなたの名前とコードを入力して参加します。
+      </p>
+
+      <label class="small" for="join-name">あなたの名前</label>
+      <input
+        id="join-name"
+        class="input"
+        type="text"
+        placeholder="例）いとう"
+        value="いとう"
+      />
+
+      <div class="row">
+        <div style="flex: 1;">
+          <div class="label-row">
+            <label class="small" for="join-code">ルームコード</label>
+            <span class="hint">例）ABCD</span>
+          </div>
+          <input
+            id="join-code"
+            class="input"
+            type="text"
+            placeholder="ABCD"
+          />
+        </div>
+      </div>
+
+      <button class="primary-btn">
+        ルームに参加する
+      </button>
+    </section>
+
+    <!-- 作成（ゲームマスター向け） -->
+    <section class="card">
+      <div class="section-title">新しくルームを作る</div>
+      <p class="small">
+        ゲームマスターとして部屋を作り、みんなに「ルームコード」を共有します。
+      </p>
+
+      <label class="small" for="host-name">あなたの名前</label>
+      <input
+        id="host-name"
+        class="input"
+        type="text"
+        placeholder="例）いとう（部屋主）"
+        value="いとう"
+      />
+
+      <label class="small" for="room-name" style="margin-top: 8px;">ルーム名（任意）</label>
+      <input
+        id="room-name"
+        class="input"
+        type="text"
+        placeholder="例）土曜夜の部"
+      />
+
+      <div class="label-row" style="margin-top: 8px;">
+        <span class="small">ルームコード</span>
+        <span class="hint">未入力なら自動生成（ABCD など）</span>
+      </div>
+      <div class="row">
+        <input
+          class="input"
+          type="text"
+          placeholder="任意（空でもOK）"
+        />
+        <button class="small-btn">自動で決める</button>
+      </div>
+
+      <button class="secondary-btn">
+        ルームを作成する
+      </button>
+    </section>
+
+    <button class="secondary-btn">
+      ルーム一覧に戻る
+    </button>
+  </main>
+
+  <footer>
+    ※ 実装時は「参加する」→ <code>POST /rooms/{code}/join</code>、<br />
+    「ルームを作成する」→ <code>POST /rooms</code> に対応させる想定です。
+  </footer>
+</body>
+</html>
