@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>Jinrou - 夜フェーズ（騎士の護衛）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      background: #020617;
+      color: #e5e7eb;
+    }
+    header {
+      padding: 12px 16px;
+      background: #020617;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #1f2937;
+    }
+    .header-left {
+      display: flex;
+      flex-direction: column;
+    }
+    .app-title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .phase-title {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 2px;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #111827;
+      border: 1px solid #374151;
+    }
+    .timer {
+      font-size: 13px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid #38bdf8;
+      color: #e0f2fe;
+    }
+    main {
+      padding: 12px 16px 16px;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+    .info-card {
+      border-radius: 16px;
+      background: radial-gradient(circle at top, #111827, #020617 60%);
+      border: 1px solid #1f2937;
+      padding: 14px;
+      margin-bottom: 12px;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+    }
+    .player-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 6px;
+    }
+    .player-name {
+      font-size: 13px;
+      color: #9ca3af;
+    }
+    .role-label {
+      font-size: 12px;
+      color: #bbf7d0;
+    }
+    .phase-label {
+      font-size: 12px;
+      margin-top: 4px;
+      color: #e5e7eb;
+    }
+    .phase-label span {
+      font-weight: 600;
+    }
+    .hint {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+    .hint strong {
+      color: #e5e7eb;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin: 16px 0 6px;
+    }
+    .target-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .target-item {
+      position: relative;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid #1f2937;
+      background: #020617;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+    }
+    .target-item span.name {
+      font-weight: 500;
+    }
+    .target-item span.status {
+      font-size: 11px;
+      color: #9ca3af;
+    }
+    .target-item[data-selected="true"] {
+      background: rgba(52, 211, 153, 0.12);
+      border-color: #22c55e;
+      transform: translateY(-1px);
+    }
+    .target-item[data-selected="true"]::after {
+      content: "護衛対象";
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid #22c55e;
+      color: #ecfdf5;
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      background: rgba(15, 23, 42, 0.9);
+    }
+
+    /* 自己護衛禁止（デフォルト）の行 */
+    .target-item.self {
+      opacity: 0.5;
+      cursor: not-allowed;
+      background: #020617;
+      border-style: dashed;
+    }
+    .target-item.self::after {
+      content: "自己護衛は無効です";
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid #4b5563;
+      color: #9ca3af;
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      background: rgba(15, 23, 42, 0.9);
+    }
+
+    .no-target {
+      font-size: 12px;
+      color: #9ca3af;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px dashed #4b5563;
+      background: #020617;
+      line-height: 1.5;
+    }
+
+    .prev-guard {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #9ca3af;
+      line-height: 1.5;
+    }
+    .prev-guard span {
+      font-weight: 600;
+      color: #e5e7eb;
+    }
+
+    .primary-btn, .secondary-btn {
+      width: 100%;
+      max-width: 480px;
+      display: block;
+      padding: 12px;
+      border-radius: 999px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      margin: 14px auto 0;
+    }
+    .primary-btn {
+      background: #16a34a;
+      color: #ffffff;
+    }
+    .primary-btn:disabled {
+      background: #1f2937;
+      color: #6b7280;
+      border: 1px solid #374151;
+      cursor: not-allowed;
+    }
+    .secondary-btn {
+      background: transparent;
+      border: 1px solid #4b5563;
+      color: #e5e7eb;
+    }
+
+    footer {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 10px 4px 18px;
+      font-size: 10px;
+      color: #6b7280;
+      text-align: center;
+      line-height: 1.5;
+    }
+    code {
+      font-size: 10px;
+    }
+
+    .badge-constraint {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid #4b5563;
+      color: #e5e7eb;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <div class="app-title">Jinrou</div>
+      <div class="phase-title">夜フェーズ：騎士の護衛</div>
+    </div>
+    <div class="header-right">
+      <div class="badge">あなたの端末</div>
+      <div class="timer" id="countdown">残り 01:48</div>
+    </div>
+  </header>
+
+  <main>
+    <!-- 上部情報カード：自分の情報 + フェーズ説明 -->
+    <section class="info-card">
+      <div class="player-row">
+        <div class="player-name">プレイヤー</div>
+        <div class="role-label">🛡 騎士</div>
+      </div>
+      <div class="player-row" style="margin-bottom:4px;">
+        <div class="player-name" style="font-size:14px;">いとう</div>
+      </div>
+
+      <div class="phase-label">
+        現在のフェーズ：<span>夜（護衛対象の選択）</span>
+      </div>
+
+      <p class="hint">
+        この画面は<strong>騎士（あなた）のスマホだけ</strong>に表示されています。<br />
+        他のプレイヤーには自分の役職ごとの画面や「待機画面」が表示されます。
+      </p>
+
+      <div class="badge-constraint">
+        ※ デフォルト設定：自己護衛はできません（自分は選択不可）
+      </div>
+      <!-- 連続護衛なしの場合や制約が増えたらここに追記 -->
+    </section>
+
+    <!-- 護衛対象リスト -->
+    <section>
+      <div class="section-title">今夜、護衛するプレイヤーを選んでください</div>
+
+      <!-- 実装時：生存中 & 自分以外のみをAPIから取得して表示 -->
+      <div class="target-list" id="targetList">
+        <div class="target-item self" data-member-id="self">
+          <div>
+            <span class="name">いとう（自分）</span>
+          </div>
+          <span class="status">生存 / 自己護衛は無効</span>
+        </div>
+
+        <div class="target-item" data-member-id="member-1">
+          <div>
+            <span class="name">たなか</span>
+          </div>
+          <span class="status">生存 / 前夜は護衛していない</span>
+        </div>
+
+        <div class="target-item" data-member-id="member-2">
+          <div>
+            <span class="name">さとう</span>
+          </div>
+          <span class="status">生存 / 前夜は護衛していない</span>
+        </div>
+
+        <div class="target-item" data-member-id="member-3">
+          <div>
+            <span class="name">すずき</span>
+          </div>
+          <span class="status">生存 / 前夜は護衛していない</span>
+        </div>
+      </div>
+
+      <!-- 護衛可能な対象がいない場合（自分以外が全員死亡など） -->
+      <!--
+      <div class="no-target">
+        今夜護衛できる対象はいません。<br />
+        このまま夜を終了し、翌朝の結果発表画面へ自動で進みます。
+      </div>
+      -->
+
+      <!-- 直近の護衛履歴（あれば） -->
+      <div class="prev-guard" id="prevGuard">
+        これまでの護衛履歴：<br />
+        ・1日目夜：<span>たなか さん を護衛</span><br />
+        ・2日目夜：<span>さとう さん を護衛</span>
+        <!-- 実装時：KnightGuard の履歴を取得して表示 -->
+      </div>
+    </section>
+
+    <!-- 決定ボタン -->
+    <button class="primary-btn" id="submitBtn" disabled>
+      このプレイヤーを護衛する
+    </button>
+
+    <button class="secondary-btn">
+      護衛せずに戻る（部屋一覧へ）
+    </button>
+  </main>
+
+  <footer>
+    ※ 実装時は <code>POST /games/{game_id}/knight/guard</code> に<br />
+    <code>{ knight_member_id: &quot;...&quot;, target_member_id: &quot;...&quot; }</code> を送信し、<br />
+    成功レスポンス後に「夜待機」または「結果表示」画面へ遷移します。
+  </footer>
+
+  <script>
+    // --- モック用：タップで1人だけ選択、自己護衛行は選択不可 ---
+    const items = document.querySelectorAll(".target-item");
+    const submitBtn = document.getElementById("submitBtn");
+
+    let selectedId = null;
+
+    items.forEach((item) => {
+      item.addEventListener("click", () => {
+        if (item.classList.contains("self")) {
+          // 自己護衛禁止：何もしない
+          return;
+        }
+
+        const id = item.getAttribute("data-member-id");
+
+        if (selectedId === id) {
+          // 同じ人をタップしたら解除
+          selectedId = null;
+          items.forEach((i) => i.setAttribute("data-selected", "false"));
+          submitBtn.disabled = true;
+          return;
+        }
+
+        selectedId = id;
+        items.forEach((i) => i.setAttribute("data-selected", "false"));
+        item.setAttribute("data-selected", "true");
+        submitBtn.disabled = false;
+      });
+    });
+
+    submitBtn.addEventListener("click", () => {
+      if (!selectedId) return;
+      // 実装時：fetch で API 呼び出し
+      alert("モック：knight_member_id=自分, target_member_id=" + selectedId + " を送信します。");
+    });
+  </script>
+</body>
+</html>

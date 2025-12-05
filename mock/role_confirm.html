@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>役職確認</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: radial-gradient(circle at top, #1f2933, #050816);
+            color: #f9fafb;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .card {
+            width: 90%;
+            max-width: 420px;
+            background: rgba(15, 23, 42, 0.92);
+            border-radius: 16px;
+            padding: 28px 20px 24px;
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+            text-align: center;
+            animation: fadeInUp 0.6s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .title {
+            font-size: 20px;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            opacity: 0.8;
+            margin-bottom: 12px;
+        }
+
+        .role-label {
+            font-size: 14px;
+            opacity: 0.7;
+            margin-bottom: 4px;
+        }
+
+        .role-name {
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            margin-bottom: 12px;
+        }
+
+        .role-tag {
+            display: inline-block;
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.6);
+            opacity: 0.9;
+            margin-bottom: 14px;
+        }
+
+        .description {
+            font-size: 14px;
+            line-height: 1.6;
+            opacity: 0.85;
+            margin-bottom: 20px;
+        }
+
+        .warning {
+            font-size: 12px;
+            color: #fbbf24;
+            opacity: 0.9;
+            margin-bottom: 16px;
+        }
+
+        .hint {
+            font-size: 11px;
+            opacity: 0.6;
+            margin-bottom: 4px;
+        }
+
+        .button {
+            width: 100%;
+            border: none;
+            border-radius: 999px;
+            padding: 12px 0;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: transform 0.08s ease-out, box-shadow 0.08s ease-out, opacity 0.2s;
+        }
+
+        .button-primary {
+            background: linear-gradient(135deg, #06b6d4, #3b82f6);
+            color: #0b1120;
+            box-shadow: 0 10px 22px rgba(37, 99, 235, 0.45);
+        }
+
+        .button-primary:active {
+            transform: translateY(1px);
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.45);
+        }
+
+        .button-disabled {
+            opacity: 0.4;
+            box-shadow: none;
+            cursor: default;
+        }
+
+        .countdown {
+            font-size: 11px;
+            opacity: 0.8;
+            margin-top: 6px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="title">ROLE CONFIRM</div>
+
+    <div class="role-label">あなたの役職</div>
+
+    <!-- ▼ 実装時はここにサーバ側から役職名を差し込む想定 -->
+    <!-- 例: <div class="role-name">{{ role_name }}</div> -->
+    <div class="role-name" id="roleName">占い師</div>
+
+    <div class="role-tag" id="teamTag">村人陣営</div>
+
+    <div class="description" id="roleDescription">
+        毎晩ひとりを占い、その人物が人狼かどうかを知ることができます。<br>
+        占い結果をうまく共有し、村人たちを勝利に導きましょう。
+    </div>
+
+    <div class="warning">
+        ※ この画面は周りの人に見られないように注意してください。
+    </div>
+
+    <div class="hint">下のボタンを押すとゲームが始まります。</div>
+
+    <button id="okButton" class="button button-primary button-disabled" disabled>
+        準備OK
+    </button>
+
+    <div class="countdown" id="countdownText">
+        数秒後にボタンが有効になります…
+    </div>
+</div>
+
+<script>
+    // ▼ 誤操作防止用：数秒間は OK ボタンを押せないようにする
+    const okButton = document.getElementById("okButton");
+    const countdownText = document.getElementById("countdownText");
+
+    let wait = 2; // 待機秒数（必要に応じて調整）
+
+    const timerId = setInterval(() => {
+        if (wait > 0) {
+            countdownText.textContent = `${wait} 秒後にボタンが有効になります`;
+            wait--;
+        } else {
+            clearInterval(timerId);
+            okButton.disabled = false;
+            okButton.classList.remove("button-disabled");
+            countdownText.textContent = "準備ができたら「準備OK」を押してください";
+        }
+    }, 1000);
+
+    okButton.addEventListener("click", () => {
+        if (okButton.disabled) return;
+        // TODO: 実装時に「役職確認完了API」などを叩く or 次の画面へ遷移
+        // 例: window.location.href = "/day";
+    });
+
+    // ▼ 役職別の説明差し替えサンプル（実装時イメージ）
+    //   実際にはサーバーから JSON / テンプレートで渡す想定
+    const roleNameEl = document.getElementById("roleName");
+    const roleDescEl = document.getElementById("roleDescription");
+    const teamTagEl = document.getElementById("teamTag");
+
+    const role = roleNameEl.textContent.trim();  // "占い師" など
+
+    const roleInfo = {
+        "村人": {
+            team: "村人陣営",
+            desc: "特別な能力はありませんが、話し合いと投票で人狼をあぶりだしましょう。"
+        },
+        "占い師": {
+            team: "村人陣営",
+            desc: "毎晩ひとりを占い、その人物が人狼かどうかを知ることができます。占い結果をうまく使いましょう。"
+        },
+        "霊媒師": {
+            team: "村人陣営",
+            desc: "処刑されたプレイヤーが人狼かどうかを知ることができます。情報を整理して村を導きましょう。"
+        },
+        "騎士": {
+            team: "村人陣営",
+            desc: "毎晩ひとりを護衛し、人狼の襲撃から守ることができます（自己護衛はできません）。"
+        },
+        "人狼": {
+            team: "人狼陣営",
+            desc: "仲間の人狼と協力し、毎晩ひとりを襲撃します。正体を隠しつつ村人を減らしていきましょう。"
+        },
+        "狂人": {
+            team: "人狼陣営（村からは人間判定）",
+            desc: "占い・霊媒では人間と判定されますが、勝利条件は人狼側です。村を混乱させましょう。"
+        }
+    };
+
+    if (roleInfo[role]) {
+        teamTagEl.textContent = roleInfo[role].team;
+        roleDescEl.innerHTML = roleInfo[role].desc.replace(/\n/g, "<br>");
+    }
+</script>
+
+</body>
+</html>

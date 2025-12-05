@@ -1,289 +1,222 @@
-# Jinrou（人狼ゲーム API）  
-FastAPI × SQLite × SQLAlchemy で構築した **ローカル同室プレイ向けの人狼ゲームバックエンド API** です。  
-ゲーム進行（昼・夜）、役職アクション（占い・霊媒・騎士護衛）、勝敗判定までを網羅し、  
-**50 以上の自動テストにより全仕様が動作保証**されています。
+# Jinrou - Web 人狼ゲーム（FastAPI）
+
+本プロジェクトは **FastAPI + SQLite + SQLAlchemy + Pydantic v2** を用いて構築した  
+「複数人がスマホから参加できる Web 人狼ゲーム」です。
+
+UI は現在モック（HTML/CSS/JS）を作成中で、  
+最終的にはロールごとに異なる画面をスマホ上で表示できる形式を目指しています。
 
 ---
 
-## ✨ 主な特徴
+# 🚀 特徴
 
-- **完全 API ベース**で構築された人狼ゲームロジック  
-- **FastAPI** による自動ドキュメント（Swagger）
-- **50+ の pytest テスト**で仕様が保証され、安心して拡張できる
-- **SQLite（ファイル or インメモリ）対応**で即動作
-- **ローカル同室プレイ前提**のため認証不要、同室内で複数端末から操作可能
-- 役職対応：**村人 / 人狼 / 占い師 / 霊媒師 / 狂人 / 騎士**
-
----
-
-# 🏗️ アーキテクチャ概要
-```text 
-app/
-├── api/
-│ ├── v1/
-│ │ ├── rooms.py … ルーム作成・参加・メンバー一覧
-│ │ ├── games.py … ゲーム開始・状態取得
-│ │ ├── day.py … 昼フェーズの投票・処刑
-│ │ ├── night.py … 夜フェーズの行動（狼・騎士）
-│ │ ├── seer.py … 占い師（夜の占い）
-│ │ ├── medium.py … 霊媒師（昼の処刑後判定）
-│ │ └── profile.py … プレイヤープロフィール
-│
-├── models/ … SQLAlchemy モデル
-├── schemas/ … Pydantic スキーマ
-├── core/logic/ … resolve_day / resolve_night などゲーム進行ロジック
-└── main.py … FastAPI エントリポイント
-```
+- **役職ごとに見える画面が異なる Web 人狼アプリ**
+- バックエンドは **REST API（FastAPI）** 完成済み
+- ゲームロジック（昼/夜フェーズ、勝敗判定）も実装済み
+- **全 56 テストが PASS**
+- ローカル同一ルームで、各参加者が **自分のスマホ**から操作する設計
+- 今後 UI を React / Next.js などへ拡張することも可能
 
 ---
 
-# 🎮 ゲームの進行フロー
+# 🧩 使用技術
 
-## 1. ルーム作成 → メンバー参加
-POST /rooms
-POST /rooms/{room_id}/join
-GET /rooms/{room_id}/members
-
-
-## 2. ゲーム開始（役職配布 & 初期ステータス）
-POST /games/{room_id}/start
-
-
-開始直後のステータスは `NIGHT`。
-
-## 3. 夜フェーズ（役職アクション）
-
-- 人狼 → 襲撃投票 (`WOLF_VOTE`)
-- 騎士 → 護衛 (`KNIGHT_GUARD`)
-- 占い師 → 占い (`SEER_INSPECT`)
-
-全て完了後：
-
-resolve_night_simple()
-
-ここで **死亡判定 / 騎士の護衛処理 / 勝敗判定** を行う。
-
-## 4. 昼フェーズ（議論→投票→処刑）
-POST /day/vote
-resolve_day_simple()
-
-
-- 最多票のプレイヤーを処刑  
-- 処刑者を `last_executed_member_id` に記録  
-- **勝敗判定**
-
-## 5. 終了（FINISHED）
-
-- `VILLAGE_WIN`
-- `WOLF_WIN`
-
-結果は `/games/{game_id}` で取得可能。
+| 分類 | 技術 |
+|------|-------|
+| 言語 | Python 3.13 |
+| Web Framework | FastAPI |
+| データベース | SQLite |
+| ORM | SQLAlchemy |
+| モデル / Validation | Pydantic v2 |
+| テスト | pytest |
+| その他 | Uvicorn, HTTPX（テスト）, UUID |
 
 ---
 
-# 🔍 役職仕様
+# 🔧 セットアップ
 
-| 役職 | 行動 | 詳細 |
-|-----|------|-------|
-| 村人 | なし | 投票のみ |
-| 人狼 | 夜に1票攻撃 | priority / points により最多得票者を襲撃 |
-| 狂人 | 村側に偽装 / 人狼陣営勝利条件にカウント | 占い & 霊媒では常に白 |
-| 占い師 | 毎晩 1 人占う | 狼かどうか（狂人は白） |
-| 霊媒師 | 昼に処刑された者を判定 | 狼かどうか（狂人は白） |
-| 騎士 | 毎晩 1 人護衛 | 連続護衛不可 / 同夜二重護衛不可 / 自己護衛不可（デフォルト） |
+```bash
+git clone https://github.com/hiroto/jinrou.git
+cd jinrou
 
----
+python -m venv .venv
+source .venv/bin/activate
 
-# 🧠 コアロジック概要
+pip install -r requirements.txt
 
-## resolve_night_simple
+uvicorn app.main:app --reload
 
-- 狼の最多得票を集計し襲撃対象を決定
-- 騎士の護衛が一致していれば **襲撃無効**
-- 不一致の場合 victim.alive = False
-- 直後に **勝敗判定（judge_game_result）**
-- 結果を以下形式で返す：
 
-```json
-{
-  "victim": { "id": "xxxx", "role": "VILLAGER" },
-  "guarded_success": false,
-  "status": {"DAY_DISCUSSION", "WOLF_WIN", "VILLAGE_WIN"}
-}
-```
+# 📚 API 仕様（概要）
 
-## 🌓 resolve_day_simple（昼フェーズ処理）
+※ 詳細なリクエスト/レスポンスは `app/api` を参照。
 
-昼フェーズの投票結果をもとに **処刑対象を決定し、勝敗判定を行うコア処理**です。
+## 1. ルーム関連
+- `POST /rooms/`  
+  ルーム作成
 
-### 🔁 処理フロー
+- `GET /rooms/`  
+  ルーム一覧取得
 
-## resolve_day_simple
+- `POST /rooms/{room_id}/join`  
+  指定ルームにプレイヤー参加
 
-1. 現在のゲーム状態が `DAY_DISCUSSION` であることを確認  
-2. 対象日の投票（`DayVote`）を全取得  
-3. 最多票のプレイヤーを選出（同票の場合はランダムに 1 名）  
-4. 選出されたプレイヤーの生存フラグ（`alive`）を `False` に更新  
-5. 処刑されたプレイヤーの ID を `last_executed_member_id` に記録  
-6. **勝敗判定（`judge_game_result`）** を実行  
-7. 判定結果に応じて状態を更新  
-   - 勝敗未決（`ONGOING`）の場合: `status = "NIGHT"` に遷移し、`curr_day` / `curr_night` をインクリメント  
-   - 勝敗確定の場合:  
-     - `status = "FINISHED"`  
-     - `result` に `"VILLAGE_WIN"` / `"WOLF_WIN"` を保存  
 
-戻り値の例:
+## 2. ゲーム開始
+- `POST /games/{room_id}/start`  
+  ルームのメンバーを元にゲームを開始し、役職を自動割り当て
 
-```json
-{
-  "game_id": "xxxx",
-  "day_no": 1,
-  "status": {"NIGHT", "FINISHED",}
-  "victim": {
-    "id": "member-uuid",
-    "display_name": "太郎",
-    "role_type": "VILLAGER",
-    "team": "VILLAGE",
-    "alive": false
-  },
-  "tally": {
-    "target_member_id": "member-uuid",
-    "vote_count": 3
-  }
-}
-```
 
----
+## 3. 昼フェーズ
+- `POST /games/{game_id}/day/vote`  
+  昼フェーズの投票を送信
 
-## 🧠 judge_game_result（勝敗判定）
+- `POST /games/{game_id}/day/resolve`  
+  昼フェーズの投票結果を集計し、処刑者を確定
 
-ゲームの勝敗を判定する最重要ロジック。
 
-### 判定基準
+## 4. 夜フェーズ
+- `POST /games/{game_id}/night/wolf/attack`  
+  人狼が襲撃対象を選択
 
-| 状態 | 条件 |
-|------|------|
-| **VILLAGE_WIN** | 全ての狼（Werewolf）が死んでいる |
-| **WOLF_WIN** | 生存狼陣営数（狼 + 狂人） >= 生存村人数 |
-| **ONGOING** | 上記どちらでもない |
+- `POST /games/{game_id}/night/seer/inspect`  
+  占い師が占い対象を選択
 
-### 補足
+- `POST /games/{game_id}/night/knight/guard`  
+  騎士が護衛対象を選択  
+  ※デフォルト設定では自己護衛は不可
 
-- 狂人（MADMAN）は「占い・霊媒では白」「勝敗条件では狼側にカウント」として計算される  
-- 処刑直後 / 襲撃直後のどちらでも使用される
+- `POST /games/{game_id}/night/resolve`  
+  夜フェーズの行動結果をまとめて処理する
 
----
 
-## 💬 役職アクションの仕様詳細
+## 5. 勝敗判定
+- `POST /games/{game_id}/judge`  
+  ゲームの勝敗を判定する。
 
-### 占い師（Seer）
+  ### 判定基準
+  - **村人陣営勝利**：生存狼が 0  
+  - **狼陣営勝利**：生存狼 + 生存狂人 ≥ 生存村人  
 
-- 毎晩 1 名を占う  
-- 結果は以下のとおり：  
-  - **狼 → true（狼です）**  
-  - **村人 / 霊媒師 / 騎士 / 占い師 / 狂人 → false（白）**
-
-### 霊媒師（Medium）
-
-- 昼の処刑後、そのプレイヤーが  
-  - 狼なら **true（黒）**  
-  - それ以外なら **false（白）**
-
-### 騎士（Knight）
-
-- 毎晩 1 名を護衛  
-- 仕様ルール：  
-  - 同一夜に二重護衛は不可  
-  - **連続同一ターゲット護衛は不可**  
-  - 狼襲撃対象と一致した場合 → **襲撃無効**
-
----
-
-## ⚖ フェーズ遷移（State Machine）
-      ┌──────────────┐
-      │   GAME_START  │
-      └───────┬────────┘
-              ▼
-          NIGHT (1)
-              │ resolve_night
-              ▼
-    DAY_DISCUSSION (1)
-              │ resolve_day
-              ▼
-          NIGHT (2)
-              │
-            ...繰り返し...
-              │
-              ▼
-         FINISHED
+  ※ 狂人は占い・霊媒では「白」だが、勝敗では狼側として扱う。
 
 
 ---
 
-## 📚 API エンドポイント一覧（要約）
+# 🧠 ゲームロジック仕様
 
-| フェーズ | メソッド / パス | 説明 |
-|----------|------------------|------|
-| ルーム | `POST /rooms` | 作成 |
-| | `POST /rooms/{id}/join` | 参加 |
-| | `GET /rooms/{id}/members` | メンバー一覧 |
-| ゲーム開始 | `POST /games/{room_id}/start` | 役職配布 |
-| 昼 | `POST /games/{id}/day/vote` | 投票 |
-| | `POST /games/{id}/resolve_day_simple` | 処刑処理 |
-| 夜 | `POST /games/{id}/wolf/vote` | 襲撃投票 |
-| | `POST /games/{id}/knight/guard` | 騎士護衛 |
-| | `POST /games/{id}/seer/inspect` | 占い |
-| | `POST /games/{id}/medium/inspect` | 霊媒 |
-| | `POST /games/{id}/resolve_night_simple` | 襲撃処理 |
+## ✔ 昼フェーズ
+- 全プレイヤーが 1 人に投票
+- 最多得票者を処刑
+- 処刑者が人狼だったかどうかの情報はログに記録される
 
----
 
-## 🧪 テストカバレッジ（56 Tests）
+## ✔ 夜フェーズ
+- **人狼**：1 人を襲撃  
+- **占い師**：誰かを占う（人狼かどうかを判定）  
+- **騎士**：1 人を護衛（自己護衛は不可 / 連続護衛は未対応）  
+- **村人・狂人・死亡者**：操作なし（待機画面）
 
-| 分類 | 内容 |
-|------|------|
-| ルーム管理 | 作成 / 参加 / メンバー一覧 / 参加重複 |
-| ゲーム開始 | 役職配布 / エラー処理 |
-| 役職ロジック | 狼 / 騎士 / 占い師 / 霊媒師 / 狂人の全仕様 |
-| 昼の処刑 | 投票集計 / 同票ランダム / 不正フェーズの拒否 |
-| 夜の襲撃 | 襲撃成功・護衛成功・勝敗反映 |
-| 勝敗判定 | 村勝利 / 狼勝利 / 継続条件 |
-| プロフィール | 作成 / 削除 / 取得 |
+夜の行動がそろったら `night/resolve` でまとめて処理する。
+
+
+## ✔ 勝敗ロジック
+- 村人勝利：生存狼が 0  
+- 狼側勝利：生存狼 + 生存狂人 ≥ 生存村人  
+- 狂人は「村から見ると人間判定」だが、勝敗では狼側
+
 
 ---
 
-## 🛠️ 開発環境
+# 🖥 UI 実装方針
 
-- Python 3.13  
-- FastAPI  
-- SQLAlchemy  
-- Pydantic v2  
-- SQLite  
-- pytest  
+このアプリは **1 人 1 台のスマホからアクセスして遊ぶ Web 人狼** を目的としている。
 
----
+### UI の基本方針
+- **自分の役職に応じた画面だけが見える**
+- 他プレイヤーの行動は表示されない（完全分離 UI）
+- 昼 / 夜で画面レイアウトは全く別
+- **タップ 1 回で行動が完了**するシンプルな UX
+- タイマー（例：昼 5:00）を画面上部に表示
+- ログ入力は UI では行わず、サーバ側で記録
+- スマホ最適化された HTML モックで UI を作成中
 
-## 🔮 今後のロードマップ
-
-- UI（スマホ操作画面）
-- WebSocket 化によるリアルタイム進行
-- 部屋ごとの履歴保存
-- 拡張役職（共有者 / 狩人 / 妖狐 etc.）
-- クライアント側 SDK 生成（TypeScript）
 
 ---
 
-## 📄 ライセンス
+# 🗂 画面一覧（UI モック）
 
-MIT
+| 画面 | ファイル名 | 説明 |
+|------|------------|--------|
+| ルーム一覧 | `room_list.html` | 参加可能なルームの一覧 |
+| ルーム参加 | `room_join.html` | ニックネーム入力・参加 |
+| 役職確認 | `role_confirm.html` | 自分の役職を確認 |
+| 昼フェーズ | `day_mock.html` | 投票 + 結果確認 |
+| 夜（人狼） | `night_wolf_attack_mock.html` | 襲撃対象を選択 |
+| 夜（占い師） | `night_seer_mock.html` | 占い対象を選択 |
+| 夜（騎士） | `night_knight_guard_mock.html` | 護衛対象を選択 |
+| 夜（待機） | `night_wait_mock.html` | 操作不要の役職向け待機画面 |
+
 
 ---
 
-必要であれば、  
-- **PDF 版 README の生成**  
-- **図入りの高クオリティ仕様書**  
-- **クリーンアーキテクチャ化の提案**  
-なども作成できます。
+# 🔀 画面遷移図（Player Flow）
 
-続きを作成しますか？```
+下図は **1 人のプレイヤー視点** の UI 遷移である。
+
+```mermaid
+flowchart TD
+
+    A[トップ / ルーム一覧<br/>room_list] --> B[ルーム参加<br/>room_join]
+    B --> C[ニックネーム入力 / 参加確定]
+
+    C --> D[待機画面<br/>「全員の参加を待っています」]
+    D --> E[役職配布完了]
+
+    E --> F[役職確認画面<br/>role_confirm.html]
+    F --> G{ゲームフェーズ分岐}
+
+    %% 昼フェーズ
+    G --> H[昼フェーズ<br/>day_mock.html]
+    H --> I[投票完了]
+    I --> J[処刑結果表示]
+
+    J --> K{勝敗が決まった？}
+    K -->|決着| R[ゲーム結果画面]
+    K -->|続行| L[夜フェーズ開始]
+
+    %% 夜フェーズ（役職ごと）
+    L --> M{あなたの役職は？}
+
+    M -->|人狼| N[人狼襲撃画面<br/>night_wolf_attack_mock.html]
+    M -->|占い師| O[占い師占い画面<br/>night_seer_mock.html]
+    M -->|騎士| P[騎士護衛画面<br/>night_knight_guard_mock.html]
+    M -->|村人 / 狂人 / 死亡者| Q[夜待機画面<br/>night_wait_mock.html]
+
+    %% 夜→次の昼
+    N --> S[夜の行動完了]
+    O --> S
+    P --> S
+    Q --> S
+
+    S --> T[夜の結果表示]
+
+    T --> U{勝敗が決まった？}
+    U -->|決着| R
+    U -->|続行| H
+
+# 📈 今後の UI 拡張予定
+
+- UI の本実装（HTML → JS → React などへの発展）
+- WebSocket を用いたリアルタイム同期（昼夜切替・結果配信）
+- 公開ログ画面の実装（誰がいつ何をしたか一覧表示）
+- 観戦モードの追加（プレイヤー以外が状況を確認）
+- 役職説明ページの追加（初めてのプレイヤー向け）
+- スマホ向け UI の最適化（スワイプ操作・タップ領域拡大）
+- タイマーのサーバー同期化（クライアント側の時間ズレ防止）
+- 騎士の「連続護衛禁止ルール」の追加（オプション化）
+- 結果画面の演出強化（アニメーション / ログの自動再生）
+- 複数ルーム同時運用の UI 整備（管理画面アップデート）
+
+
 
