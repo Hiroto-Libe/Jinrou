@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>夜フェーズ - 人狼の襲撃 | Jinrou</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050816;
+      --panel: #111827;
+      --accent: #f97316;
+      --accent-soft: rgba(249,115,22,0.1);
+      --accent-strong: rgba(249,115,22,0.25);
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --danger: #fca5a5;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #1e293b 0, #020617 45%, #020617 100%);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 960px;
+      background: linear-gradient(135deg, rgba(248,250,252,0.08), rgba(15,23,42,0.98));
+      border-radius: 18px;
+      box-shadow: 0 22px 60px rgba(15,23,42,0.8);
+      border: 1px solid rgba(148,163,184,0.2);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    header {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 6px 8px 10px;
+      border-bottom: 1px solid rgba(148,163,184,0.3);
+    }
+
+    .room {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .phase {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .phase-badge {
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--accent);
+      background: var(--accent-soft);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #fed7aa;
+    }
+
+    .phase-text-main {
+      font-size: 18px;
+    }
+
+    .phase-text-sub {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .info-row strong {
+      color: var(--text);
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+      gap: 16px;
+      margin-top: 4px;
+    }
+
+    @media (max-width: 780px) {
+      .main-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .panel {
+      background: rgba(15,23,42,0.90);
+      border-radius: 14px;
+      border: 1px solid rgba(148,163,184,0.35);
+      padding: 10px 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .panel-title {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .panel-sub {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .target-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 8px;
+      margin-top: 2px;
+    }
+
+    .attack-card {
+      position: relative;
+      background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,64,175,0.6));
+      border-radius: 12px;
+      padding: 8px;
+      border: 1px solid rgba(148,163,184,0.4);
+      cursor: pointer;
+      transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-height: 72px;
+    }
+
+    .attack-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 30px rgba(15,23,42,0.9);
+      border-color: rgba(251,113,133,0.9);
+      background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(251,113,133,0.65));
+    }
+
+    .attack-card.selected {
+      border-color: var(--accent);
+      background: radial-gradient(circle at top left, var(--accent-strong), rgba(15,23,42,0.95));
+      box-shadow: 0 0 0 1px rgba(248,250,252,0.1), 0 12px 28px rgba(15,23,42,0.9);
+    }
+
+    .attack-card.disabled,
+    .attack-card.disabled-self {
+      opacity: 0.5;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .attack-card.disabled:hover,
+    .attack-card.disabled-self:hover {
+      transform: none;
+      box-shadow: none;
+      border-color: rgba(148,163,184,0.4);
+      background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,64,175,0.6));
+    }
+
+    .player-name-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .display-name {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .badge-alive {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(34,197,94,0.7);
+      color: #bbf7d0;
+      background: rgba(22,101,52,0.35);
+    }
+
+    .role-tag {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .you-tag {
+      font-size: 11px;
+      color: #fee2e2;
+    }
+
+    .hint {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .action-area {
+      margin-top: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .status-text {
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 1.3em;
+    }
+
+    .status-text.important {
+      color: #fed7aa;
+    }
+
+    .attack-button {
+      margin-top: 2px;
+      width: 100%;
+      border-radius: 999px;
+      padding: 8px 10px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      cursor: pointer;
+      background: radial-gradient(circle at top left, var(--accent), #b91c1c);
+      color: #0b1120;
+      box-shadow: 0 12px 30px rgba(185,28,28,0.8);
+      transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+    }
+
+    .attack-button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 38px rgba(185,28,28,0.95);
+    }
+
+    .attack-button:active:not(:disabled) {
+      transform: translateY(0);
+      box-shadow: 0 8px 18px rgba(127,29,29,0.95);
+    }
+
+    .attack-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .log-panel {
+      height: 210px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .log-container {
+      flex: 1;
+      border-radius: 10px;
+      background: rgba(15,23,42,0.9);
+      border: 1px solid rgba(148,163,184,0.35);
+      padding: 6px 8px;
+      overflow-y: auto;
+      font-size: 11px;
+      max-height: 180px;
+    }
+
+    .log-item {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .log-time {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--muted);
+      font-size: 10px;
+      flex: 0 0 auto;
+      width: 52px;
+    }
+
+    .log-system { color: var(--muted); }
+    .log-you { color: #bfdbfe; }
+
+    .footer-note {
+      margin-top: 4px;
+      font-size: 10px;
+      color: var(--muted);
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="room">Room — Jinrou</div>
+      <div class="phase">
+        <span class="phase-badge">Night</span>
+        <div>
+          <div class="phase-text-main" id="phase-title">Night 1 人狼の襲撃フェーズ</div>
+          <div class="phase-text-sub">襲撃するプレイヤーを 1 人だけ選んでください。他の人には見えません。</div>
+        </div>
+      </div>
+      <div class="info-row">
+        <span>あなた: <strong id="me-name">（読み込み中）</strong>（<span style="color:#fecaca;">人狼</span>）</span>
+        <span>生存プレイヤー: <strong id="alive-count">-人</strong></span>
+      </div>
+    </header>
+
+    <div class="main-grid">
+      <!-- 左：ターゲット選択 -->
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">襲撃するプレイヤーを選択</div>
+            <div class="panel-sub">※ 一覧から 1 人を選択します（最終的な結果はシステムが判定）。</div>
+          </div>
+        </div>
+
+        <!-- JS で .attack-card を動的生成する -->
+        <div class="target-grid" id="member-list"></div>
+
+        <div class="action-area">
+          <div class="status-text important" id="status-text">
+            襲撃するプレイヤーを 1 人選んでください。
+          </div>
+          <button class="attack-button" id="attack-button" disabled>このプレイヤーを襲撃する</button>
+        </div>
+      </section>
+
+      <!-- 右：ログ -->
+      <section class="panel log-panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">夜の行動ログ（あなたにのみ表示）</div>
+            <div class="panel-sub">誰を選んだかの履歴が表示されます。他プレイヤーからは見えません。</div>
+          </div>
+        </div>
+        <div class="log-container" id="log-container">
+          <div class="log-item">
+            <span class="log-time">[--:--]</span>
+            <span class="log-system">[System] 人狼の襲撃フェーズが開始されました。</span>
+          </div>
+        </div>
+        <div class="footer-note">
+          ※ 実装時はサーバー側の夜処理ロジックと連携します。
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="/frontend/js/night_common.js"></script>
+  <script>
+    (function () {
+      const logContainer = document.getElementById("log-container");
+      const statusText = document.getElementById("status-text");
+      const phaseTitle = document.getElementById("phase-title");
+      const meNameEl = document.getElementById("me-name");
+      const aliveCountEl = document.getElementById("alive-count");
+
+      const params = new URLSearchParams(window.location.search);
+      const nightNo = params.get("night") ?? "1";
+      phaseTitle.textContent = `Night ${nightNo} 人狼の襲撃フェーズ`;
+
+      function appendLog(text, type = "system") {
+        const item = document.createElement("div");
+        item.className = "log-item";
+
+        const timeSpan = document.createElement("span");
+        timeSpan.className = "log-time";
+        const now = new Date();
+        timeSpan.textContent = `[${now
+          .getHours()
+          .toString()
+          .padStart(2, "0")}:${now
+          .getMinutes()
+          .toString()
+          .padStart(2, "0")}]`;
+
+        const bodySpan = document.createElement("span");
+        if (type === "you") {
+          bodySpan.className = "log-you";
+          bodySpan.textContent = `[You] ${text}`;
+        } else {
+          bodySpan.className = "log-system";
+          bodySpan.textContent = `[System] ${text}`;
+        }
+
+        item.appendChild(timeSpan);
+        item.appendChild(bodySpan);
+        logContainer.appendChild(item);
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
+
+      JinrouNight.initNightRolePage({
+        expectedRole: "wolf",
+        elements: {
+          statusId: "status-text",
+          membersId: "member-list",
+          buttonId: "attack-button",
+          resultId: "log-container",
+        },
+        buildEndpoint: (gameId) =>
+          `/api/games/${encodeURIComponent(gameId)}/wolves/vote`,
+        buildRequestBody: ({ me, targetMember }) => ({
+          wolf_member_id: me.game_member_id,
+          target_member_id: targetMember.id,
+          priority_level: 1,
+        }),
+        buildSuccessMessage: ({ data, targetMember }) => {
+          const name = targetMember.name || "対象";
+          appendLog(`あなたは「${name}」を襲撃対象に選びました。`, "you");
+          statusText.textContent =
+            "襲撃行動を送信しました。朝の結果をお待ちください。";
+          return ""; // ここでは log に書くので resultId 側には空文字
+        },
+        texts: {
+          loadingMe: "人狼の情報を読み込み中...",
+          loadingGame: "プレイヤー一覧を取得中...",
+          selectPrompt: "襲撃したい相手を選んでください。",
+          roleMismatch:
+            "あなたは人狼ではありません。この画面からは操作できません。",
+          doneStatus: "今夜の襲撃投票は完了しました。他の人の投票を待ってください。",
+        },
+        renderMembers: ({ members, me, containerEl, expectedRole, actionDone, onSelect }) => {
+          containerEl.innerHTML = "";
+          if (!Array.isArray(members)) return;
+
+          const aliveMembers = members.filter((m) => m.is_alive !== false);
+          if (aliveCountEl) aliveCountEl.textContent = `${aliveMembers.length}人`;
+          if (meNameEl) meNameEl.textContent = me.name || "あなた";
+
+          members.forEach((m) => {
+            const card = document.createElement("div");
+            card.className = "attack-card";
+            card.dataset.memberId = m.id;
+
+            const isAlive = m.is_alive !== false;
+            const isSelf = me && m.id === me.game_member_id;
+            const roleMismatch = expectedRole && me?.role !== expectedRole;
+
+            if (!isAlive) {
+              card.classList.add("disabled");
+            }
+            if (isSelf) {
+              card.classList.add("disabled-self");
+            }
+
+            const nameRow = document.createElement("div");
+            nameRow.className = "player-name-row";
+
+            const nameSpan = document.createElement("span");
+            nameSpan.className = "display-name";
+            nameSpan.textContent = m.name || `プレイヤー ${m.id}`;
+
+            const badge = document.createElement("span");
+            badge.className = "badge-alive";
+            badge.textContent = isAlive ? "生存中" : "死亡";
+
+            nameRow.appendChild(nameSpan);
+            nameRow.appendChild(badge);
+
+            const roleTag = document.createElement("div");
+            roleTag.className = "role-tag";
+
+            const hint = document.createElement("div");
+            hint.className = "hint";
+
+            if (isSelf) {
+              roleTag.innerHTML = '<span class="you-tag">あなた（人狼）</span>';
+              hint.textContent = "※ 自分を襲撃することはできません。";
+            } else if (!isAlive) {
+              roleTag.textContent = "死亡プレイヤー";
+              hint.textContent = "襲撃対象には選べません。";
+            } else {
+              roleTag.textContent = "推定：村人陣営";
+              hint.textContent = "タップして襲撃候補に選択";
+            }
+
+            card.appendChild(nameRow);
+            card.appendChild(roleTag);
+            card.appendChild(hint);
+
+            if (!isAlive || isSelf || actionDone || roleMismatch) {
+              card.style.pointerEvents = "none";
+            } else {
+              card.addEventListener("click", () => {
+                if (actionDone) return;
+                containerEl
+                  .querySelectorAll(".attack-card")
+                  .forEach((c) => c.classList.remove("selected"));
+                card.classList.add("selected");
+                onSelect(m);
+
+                statusText.textContent = `「${nameSpan.textContent}」を襲撃候補として選択中です。`;
+                appendLog(
+                  `「${nameSpan.textContent}」を襲撃候補として選択しました。`,
+                  "you"
+                );
+              });
+            }
+
+            containerEl.appendChild(card);
+          });
+        },
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -41,6 +41,7 @@ from ...schemas.knight import (
     KnightGuardOut,
 )
 from ...schemas.medium import MediumInspectOut  # ★ 追加
+from ...schemas.game_member import GameMemberMe
 
 router = APIRouter(prefix="/games", tags=["games"])
 
@@ -179,13 +180,6 @@ def debug_set_status(
     db.refresh(game)
     return {"game_id": game.id, "status": game.status}
 
-
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-# ... 既存の import そのまま ...
-
-from ...api.deps import get_db_dep
 
 # 中略（既存のエンドポイントたち）
 
@@ -1353,3 +1347,23 @@ def judge_game(
     return result
 
 
+@router.get("/{game_id}/me", response_model=GameMemberMe)
+def get_my_info(
+    game_id: str,
+    player_id: str,
+    db: Session = Depends(get_db_dep),  # いまは使わないけどシグネチャだけ合わせておく
+) -> GameMemberMe:
+    """
+    いったん DB は無視してダミー値を返す版。
+    UI の動作確認用。
+    """
+    return GameMemberMe(
+        game_id=game_id,
+        player_id=player_id,
+        role="seer",   # ここはテスト用に固定
+        status="alive",
+    )
+
+@router.get("/debug/wolves")
+def debug_wolves():
+    return {"ok": True}

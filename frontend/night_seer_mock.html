@@ -142,6 +142,97 @@
       margin-top: 16px;
     }
   </style>
+  <script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const params = new URLSearchParams(window.location.search);
+    const gameId = params.get("game_id");
+    const playerId = params.get("player_id");
+
+    const cards = document.querySelectorAll(".inspect-card");
+    const inspectButton = document.querySelector(".inspect-button");
+    const resultText = document.querySelector(".result-text");
+    const logContainer = document.querySelector(".log-container");
+
+    let selectedTargetId = null;
+
+    function appendLog(text, type = "system") {
+      const item = document.createElement("div");
+      item.className = "log-item";
+      const timeSpan = document.createElement("span");
+      timeSpan.className = "log-time";
+      const now = new Date();
+      timeSpan.textContent = `[${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}]`;
+
+      const bodySpan = document.createElement("span");
+      bodySpan.className = type === "you" ? "log-you" : "log-system";
+      bodySpan.textContent = type === "you" ? `[You] ${text}` : `[System] ${text}`;
+
+      item.appendChild(timeSpan);
+      item.appendChild(bodySpan);
+      logContainer.appendChild(item);
+      logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    cards.forEach(card => {
+      const id = card.getAttribute("data-member-id");
+      if (!id) return;
+
+      card.addEventListener("click", () => {
+        selectedTargetId = id;
+        cards.forEach(c => c.classList.remove("selected"));
+        card.classList.add("selected");
+        inspectButton.disabled = false;
+      });
+    });
+
+    inspectButton.addEventListener("click", async () => {
+      if (!gameId || !playerId || !selectedTargetId) return;
+
+      inspectButton.disabled = true;
+      resultText.textContent = "占い結果を取得中…";
+
+      try {
+        const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/night/seer/inspect`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            seer_player_id: playerId,      // ★ API仕様に合わせて変更
+            target_member_id: selectedTargetId,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          const detail = err?.detail ?? `HTTP ${res.status}`;
+          appendLog(`占いに失敗しました: ${detail}`, "system");
+          resultText.textContent = "占いに失敗しました。もう一度やり直すことはできません。";
+          return;
+        }
+
+        const data = await res.json(); // 例: { is_wolf: true, target_role: "wolf" } など
+        const isWolf = data.is_wolf;   // ★ 実際のレスポンスに合わせて変更
+
+        const targetName = document.querySelector(
+          `.inspect-card[data-member-id="${selectedTargetId}"] .display`
+        )?.textContent ?? "対象";
+
+        const resultLabel = isWolf ? "人狼" : "人狼ではない（白）";
+        resultText.textContent = `「${targetName}」は ${resultLabel} と判定されました。`;
+        appendLog(`「${targetName}」を占いました。結果: ${resultLabel}`, "you");
+
+        // 以降は再操作禁止
+        cards.forEach(c => c.classList.add("disabled"));
+      } catch (e) {
+        console.error(e);
+        appendLog("サーバーへの接続に失敗しました。", "system");
+        resultText.textContent = "通信エラーが発生しました。";
+      }
+    });
+  });
+</script>
+
 </head>
 <body>
   <header>

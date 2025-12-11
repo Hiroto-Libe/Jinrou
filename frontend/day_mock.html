@@ -132,6 +132,16 @@
       background: radial-gradient(circle at top left, rgba(251, 191, 36, 0.18), rgba(15, 23, 42, 0.9));
     }
 
+    .vote-card.disabled-self {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .vote-card.disabled-self:hover {
+      transform: none;
+      box-shadow: none;
+    }
+
     .vote-left {
       display: flex;
       align-items: center;
@@ -261,7 +271,16 @@
       const voteButton = document.querySelector(".vote-button");
       const logContainer = document.querySelector(".log-container");
 
+      const params = new URLSearchParams(window.location.search);
+      const day = params.get("day") ?? "1";
+
+      const titleEl = document.getElementById("day-title");
+      titleEl.textContent = `Day ${day} 昼の議論フェーズ`;
+
       let selectedId = null;
+
+      // ★ 自分の GameMember ID（モックなので固定でOK）
+      const myMemberId = "m1";
 
       function appendLog(text, type = "system") {
         const item = document.createElement("div");
@@ -287,10 +306,22 @@
         logContainer.scrollTop = logContainer.scrollHeight;
       }
 
+      // ★ 投票先カードのクリック処理
       cards.forEach(card => {
+        const id = card.getAttribute("data-member-id");
+        if (!id) return;
+
+        // 自分のカードは常にグレーアウト
+        if (id === myMemberId) {
+          card.classList.add("disabled-self");
+        }
+
         card.addEventListener("click", () => {
-          const id = card.getAttribute("data-member-id");
-          if (!id) return;
+          // 自分には投票できない
+          if (id === myMemberId) {
+            appendLog("自分には投票できません。別のプレイヤーを選んでください。", "system");
+            return;
+          }
 
           selectedId = id;
           cards.forEach(c => c.classList.remove("selected"));
@@ -299,6 +330,7 @@
         });
       });
 
+      // 投票ボタン押下
       voteButton.addEventListener("click", () => {
         if (!selectedId) return;
         const name = document.querySelector(`.vote-card[data-member-id="${selectedId}"] .display`)?.textContent || "不明なプレイヤー";
@@ -309,12 +341,14 @@
       });
     });
   </script>
+
 </head>
 <body>
   <div class="app">
     <header>
       <div class="room">Room #ABCD — Jinrou</div>
-      <div class="day">Day 2 昼の議論フェーズ</div>
+      <!-- JS から書き換える対象 -->
+      <div class="day" id="day-title">Day 1 昼の議論フェーズ</div>
       <div class="info-row">
         <span>あなた: さくら</span>
         <span>生存プレイヤー: 5人</span>
@@ -398,7 +432,7 @@
         <div class="log-container">
           <div class="log-item">
             <span class="log-time">[12:01]</span>
-            <span class="log-system">[System] Day 2 が開始されました</span>
+            <span class="log-system">[System] 昼フェーズが開始されました</span>
           </div>
           <div class="log-item">
             <span class="log-time">[12:01]</span>

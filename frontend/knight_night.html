@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>夜フェーズ - 騎士</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; }
+    h1 { font-size: 1.4rem; margin-bottom: 8px; }
+    .info { font-size: 0.9rem; margin-bottom: 12px; color: #555; }
+    .members {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .member-card {
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 8px;
+      text-align: center;
+      cursor: pointer;
+      user-select: none;
+      background: #fff;
+    }
+    .member-card.dead { opacity: 0.4; cursor: not-allowed; }
+    .member-card.self { opacity: 0.4; cursor: not-allowed; }
+    .member-card.selected {
+      border-color: #0066cc;
+      box-shadow: 0 0 0 2px rgba(0,102,204,0.2);
+    }
+    button {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: none;
+      font-size: 1rem;
+    }
+    button:disabled { opacity: 0.5; }
+    .primary { background: #0066cc; color: #fff; }
+    .log { margin-top: 16px; font-size: 0.9rem; white-space: pre-wrap; }
+    .error { color: #b00020; }
+    .success { color: #006400; }
+  </style>
+</head>
+<body>
+  <h1>夜フェーズ：騎士</h1>
+  <div class="info">
+    あなたの役職：<strong>騎士</strong><br>
+    今夜、<strong>1人だけ</strong>を護衛できます。<br>
+    自分と死亡者は選べません（自己護衛禁止）。
+  </div>
+
+  <div id="status" class="info"></div>
+
+  <div id="member-list" class="members"></div>
+
+  <button id="guard-btn" class="primary" disabled>このプレイヤーを護衛する</button>
+
+  <div id="result" class="log"></div>
+
+  <script src="/frontend/js/night_common.js"></script>
+  <script>
+    JinrouNight.initNightRolePage({
+      expectedRole: 'knight',
+      elements: {
+        statusId: 'status',
+        membersId: 'member-list',
+        buttonId: 'guard-btn',
+        resultId: 'result',
+      },
+      buildEndpoint: (gameId) =>
+        `/api/games/${encodeURIComponent(gameId)}/knight/guard`,
+      buildRequestBody: ({ me, targetMember }) => ({
+        knight_member_id: me.game_member_id,
+        target_member_id: targetMember.id,
+      }),
+      buildSuccessMessage: ({ data, targetMember }) => {
+        const name = data.target_name || targetMember.name || '相手';
+        return `🛡 ${name} さんを護衛しました。襲撃が来ても守れるかもしれません。`;
+      },
+      texts: {
+        loadingMe: '騎士の情報を読み込み中...',
+        loadingGame: 'プレイヤー一覧を取得中...',
+        selectPrompt: '護衛する相手を選んでください。',
+        roleMismatch:
+          'あなたは騎士ではありません。この画面からは操作できません。',
+        doneStatus: '今夜の護衛は完了しました。他の人のターンを待ってください。',
+      },
+    });
+  </script>
+</body>
+</html>
