@@ -71,7 +71,7 @@
       buildEndpoint: (gameId) =>
         `/api/games/${encodeURIComponent(gameId)}/knight/guard`,
       buildRequestBody: ({ me, targetMember }) => ({
-        knight_member_id: me.game_member_id,
+        knight_member_id: me.player_id,
         target_member_id: targetMember.id,
       }),
       buildSuccessMessage: ({ data, targetMember }) => {

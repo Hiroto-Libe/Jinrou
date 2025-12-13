@@ -431,12 +431,15 @@
         buildEndpoint: (gameId) =>
           `/api/games/${encodeURIComponent(gameId)}/wolves/vote`,
         buildRequestBody: ({ me, targetMember }) => ({
-          wolf_member_id: me.game_member_id,
+          wolf_member_id: me.player_id,
           target_member_id: targetMember.id,
           priority_level: 1,
         }),
         buildSuccessMessage: ({ data, targetMember }) => {
-          const name = targetMember.name || "対象";
+          const name =
+            targetMember.display_name ||
+            targetMember.name ||
+            "対象";
           appendLog(`あなたは「${name}」を襲撃対象に選びました。`, "you");
           statusText.textContent =
             "襲撃行動を送信しました。朝の結果をお待ちください。";
@@ -448,24 +451,50 @@
           selectPrompt: "襲撃したい相手を選んでください。",
           roleMismatch:
             "あなたは人狼ではありません。この画面からは操作できません。",
-          doneStatus: "今夜の襲撃投票は完了しました。他の人の投票を待ってください。",
+          doneStatus:
+            "今夜の襲撃投票は完了しました。他の人の投票を待ってください。",
         },
-        renderMembers: ({ members, me, containerEl, expectedRole, actionDone, onSelect }) => {
+        renderMembers: ({
+          members,
+          me,
+          containerEl,
+          expectedRole,
+          actionDone,
+          onSelect,
+        }) => {
           containerEl.innerHTML = "";
           if (!Array.isArray(members)) return;
 
-          const aliveMembers = members.filter((m) => m.is_alive !== false);
+          // 生存者カウント（is_alive / alive 両対応）
+          const aliveMembers = members.filter((m) =>
+            m.is_alive !== undefined ? m.is_alive : m.alive !== false
+          );
           if (aliveCountEl) aliveCountEl.textContent = `${aliveMembers.length}人`;
-          if (meNameEl) meNameEl.textContent = me.name || "あなた";
+
+          // ★ 自分の GameMember を探してヘッダーに名前を表示
+          const selfId = me?.player_id || me?.game_member_id;
+          const meMember = members.find((m) => m.id === selfId);
+          if (meNameEl) {
+            const displayName =
+              meMember?.display_name || meMember?.name || "あなた";
+            meNameEl.textContent = displayName;
+          }
 
           members.forEach((m) => {
             const card = document.createElement("div");
             card.className = "attack-card";
             card.dataset.memberId = m.id;
 
-            const isAlive = m.is_alive !== false;
-            const isSelf = me && m.id === me.game_member_id;
+            const isAlive =
+              m.is_alive !== undefined ? m.is_alive : m.alive !== false;
+
+            const isSelf = selfId && m.id === selfId;
             const roleMismatch = expectedRole && me?.role !== expectedRole;
+
+            // 仲間人狼かどうか（自分以外で role_type === "WEREWOLF"）
+            const isWolfAlly =
+              !isSelf &&
+              (m.role_type === "WEREWOLF" || m.role === "WEREWOLF");
 
             if (!isAlive) {
               card.classList.add("disabled");
@@ -473,13 +502,18 @@
             if (isSelf) {
               card.classList.add("disabled-self");
             }
+            if (isWolfAlly) {
+              card.classList.add("disabled");
+            }
 
             const nameRow = document.createElement("div");
             nameRow.className = "player-name-row";
 
             const nameSpan = document.createElement("span");
             nameSpan.className = "display-name";
-            nameSpan.textContent = m.name || `プレイヤー ${m.id}`;
+            const displayName =
+              m.display_name || m.name || `プレイヤー ${m.id}`;
+            nameSpan.textContent = displayName;
 
             const badge = document.createElement("span");
             badge.className = "badge-alive";
@@ -495,11 +529,15 @@
             hint.className = "hint";
 
             if (isSelf) {
-              roleTag.innerHTML = '<span class="you-tag">あなた（人狼）</span>';
+              roleTag.innerHTML =
+                '<span class="you-tag">あなた（人狼）</span>';
               hint.textContent = "※ 自分を襲撃することはできません。";
             } else if (!isAlive) {
               roleTag.textContent = "死亡プレイヤー";
               hint.textContent = "襲撃対象には選べません。";
+            } else if (isWolfAlly) {
+              roleTag.textContent = "人狼（仲間）";
+              hint.textContent = "仲間の人狼は襲撃対象には選べません。";
             } else {
               roleTag.textContent = "推定：村人陣営";
               hint.textContent = "タップして襲撃候補に選択";
@@ -509,7 +547,13 @@
             card.appendChild(roleTag);
             card.appendChild(hint);
 
-            if (!isAlive || isSelf || actionDone || roleMismatch) {
+            if (
+              !isAlive ||
+              isSelf ||
+              isWolfAlly ||
+              actionDone ||
+              roleMismatch
+            ) {
               card.style.pointerEvents = "none";
             } else {
               card.addEventListener("click", () => {

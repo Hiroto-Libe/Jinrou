@@ -352,8 +352,10 @@ def wolf_vote(
     if target.id == wolf.id:
         raise HTTPException(status_code=400, detail="Wolf cannot target themselves")
 
-    if target.team == "WOLF":
-        raise HTTPException(status_code=400, detail="Wolf cannot target other wolves")
+    # 狂人(MADMAN)は team=WOLF だが、襲撃対象としては許可したいので
+    # 「他の人狼(WEREWOLF)」だけ禁止にする
+    if target.role_type == "WEREWOLF":
+        raise HTTPException(status_code=400, detail="Wolf cannot target other werewolves")
 
     # priority_level → ポイント値
     if data.priority_level == 1:
@@ -1347,23 +1349,41 @@ def judge_game(
     return result
 
 
+ROLE_MAP = {
+    "WEREWOLF": "wolf",
+    "SEER": "seer",
+    "KNIGHT": "knight",
+    "MEDIUM": "medium",
+    "MADMAN": "madman",
+    "VILLAGER": "villager",
+    None: "villager",  # 念のため
+}
+
 @router.get("/{game_id}/me", response_model=GameMemberMe)
 def get_my_info(
     game_id: str,
     player_id: str,
-    db: Session = Depends(get_db_dep),  # いまは使わないけどシグネチャだけ合わせておく
+    db: Session = Depends(get_db_dep),
 ) -> GameMemberMe:
     """
-    いったん DB は無視してダミー値を返す版。
-    UI の動作確認用。
+    実際の GameMember から自分の役職・状態を返す本番版。
+    player_id は GameMember.id を想定。
     """
-    return GameMemberMe(
-        game_id=game_id,
-        player_id=player_id,
-        role="seer",   # ここはテスト用に固定
-        status="alive",
-    )
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
 
-@router.get("/debug/wolves")
-def debug_wolves():
-    return {"ok": True}
+    member = db.get(GameMember, player_id)
+    if not member or member.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Member not found in this game")
+
+    # role_type は "WEREWOLF" / "SEER" ... なので、フロント向けに小文字にマップする
+    role_key = ROLE_MAP.get(member.role_type, "villager")
+    status = "alive" if member.alive else "dead"
+
+    return GameMemberMe(
+        game_id=game.id,
+        player_id=member.id,
+        role=role_key,
+        status=status,
+    )

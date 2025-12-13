@@ -37,7 +37,7 @@
     return await res.json();
   }
 
-  // デフォルトのメンバー描画（seer / knight 用）
+  // デフォルトのメンバー描画（必要なら各画面側で renderMembers を上書き）
   function defaultRenderMembers({
     members,
     me,
@@ -49,22 +49,25 @@
   }) {
     if (!containerEl) return;
     containerEl.innerHTML = "";
-
     if (!Array.isArray(members)) return;
+
+    const selfId = me?.player_id || me?.game_member_id;
 
     members.forEach((m) => {
       const card = document.createElement("div");
       card.className = cardClass;
       card.dataset.memberId = m.id;
 
-      const isAlive = m.is_alive !== false;
-      const isSelf = me && m.id === me.game_member_id;
+      const isAlive =
+        m.is_alive !== undefined ? m.is_alive : m.alive !== false;
+      const isSelf = selfId && m.id === selfId;
       const roleMismatch = expectedRole && me?.role !== expectedRole;
 
       if (!isAlive) card.classList.add("dead");
       if (isSelf) card.classList.add("self");
 
-      card.textContent = m.name || `プレイヤー ${m.id}`;
+      const displayName = m.display_name || m.name || `プレイヤー ${m.id}`;
+      card.textContent = displayName;
 
       if (!isAlive || isSelf || actionDone || roleMismatch) {
         card.style.pointerEvents = "none";
@@ -89,11 +92,11 @@
    * config:
    *  - expectedRole: 'seer' | 'knight' | 'wolf' など
    *  - elements: { statusId, membersId, buttonId, resultId }
-   *  - buildEndpoint: (gameId) => string
+   *  - buildEndpoint: (gameId, me) => string
    *  - buildRequestBody: ({ me, targetMember }) => any
    *  - buildSuccessMessage: ({ data, targetMember }) => string
    *  - texts: { loadingMe, loadingGame, selectPrompt, roleMismatch, doneStatus }
-   *  - renderMembers (任意): 独自のカード描画関数を使う場合に指定
+   *  - renderMembers (任意)
    *       ({ members, me, containerEl, expectedRole, actionDone, onSelect }) => void
    */
   async function initNightRolePage(config) {
@@ -136,8 +139,12 @@
       safeSetStatus("送信中です...");
 
       try {
-        const endpoint = config.buildEndpoint(gameId);
-        const body = config.buildRequestBody({ me, targetMember: selectedTarget });
+        // ★ ここが重要：me も渡す
+        const endpoint = config.buildEndpoint(gameId, me);
+        const body = config.buildRequestBody({
+          me,
+          targetMember: selectedTarget,
+        });
 
         const res = await fetch(endpoint, {
           method: "POST",
@@ -147,11 +154,17 @@
 
         if (!res.ok) {
           const errText = await res.text();
-          throw new Error(`アクションに失敗しました (${res.status}): ${errText}`);
+          throw new Error(
+            `アクションに失敗しました (${res.status}): ${errText}`
+          );
         }
 
         const data = await res.json();
-        const msg = config.buildSuccessMessage({ data, targetMember: selectedTarget });
+        const msg = config.buildSuccessMessage({
+          data,
+          targetMember: selectedTarget,
+        });
+
         appendLog(resultEl, msg, "success");
         safeSetStatus(
           config.texts.doneStatus || "この夜の行動は完了しました。"
@@ -163,7 +176,7 @@
         console.error(err);
         appendLog(resultEl, String(err), "error");
         safeSetStatus(
-          "アクション送信でエラーが発生しました。通信状況またはゲーム状態を確認してください。"
+          `アクション送信でエラー: ${String(err).replace(/^Error:\s*/, "")}`
         );
         buttonEl.disabled = false;
       }
@@ -191,9 +204,20 @@
         actionDone = true;
       }
 
-      safeSetStatus(config.texts.loadingGame || "ゲーム情報を読み込み中...");
-      const gameData = await fetchGame(gameId);
-      members = gameData.game_members || [];
+      safeSetStatus(
+        config.texts.loadingGame || "プレイヤー一覧を読み込み中..."
+      );
+
+      const resMembers = await fetch(
+        `${API_BASE}/games/${encodeURIComponent(gameId)}/members`
+      );
+      if (!resMembers.ok) {
+        throw new Error(
+          `プレイヤー一覧の取得に失敗しました (${resMembers.status})`
+        );
+      }
+
+      members = await resMembers.json();
 
       const renderFn = config.renderMembers || defaultRenderMembers;
 
@@ -210,7 +234,9 @@
       });
 
       if (!actionDone) {
-        safeSetStatus(config.texts.selectPrompt || "対象を選択してください。");
+        safeSetStatus(
+          config.texts.selectPrompt || "対象を選択してください。"
+        );
       }
     } catch (err) {
       console.error(err);
