@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>夜フェーズ - 待機</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; background:#f5f5f5; }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    .box { background:#fff; border:1px solid #ddd; border-radius:12px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+    button { padding:10px 14px; border-radius:999px; border:none; font-size:1rem; }
+    .primary { background:#0066cc; color:#fff; }
+    .ghost { background:#eee; color:#333; }
+    .danger { background:#b00020; color:#fff; }
+    .status { margin-top:8px; color:#444; }
+    .log { margin-top:10px; white-space:pre-wrap; font-size:.92rem; }
+    .log .error { color:#b00020; }
+    .log .success { color:#006400; }
+    .small { font-size:.88rem; color:#666; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; font-size:.82rem; color:#333; }
+  </style>
+</head>
+<body>
+  <h1>夜フェーズ：待機</h1>
+
+  <div class="box">
+    <div class="small">
+      村人 / 狂人など「夜のアクションがない」役職用の待機画面です。<br>
+      夜明け処理（朝の結果反映）は、司会（ホスト）が実行してください。
+    </div>
+
+    <div class="status" id="status">読み込み中...</div>
+
+    <div class="row">
+      <button class="ghost" id="refresh">状態を更新</button>
+      <button class="primary" id="go-morning">朝の結果（夜明け処理）へ</button>
+      <button class="danger" id="go-night">（誤操作対策）夜画面へ戻す</button>
+    </div>
+
+    <div class="log" id="log"></div>
+  </div>
+
+  <script src="/frontend/js/night_common.js">
+    const qs = new URLSearchParams(location.search);
+    const gameId = qs.get("game_id");
+    const playerId = qs.get("player_id");
+
+    // ★追加：勝敗確定なら result.html へ
+    setupAutoResultRedirect(gameId, playerId);
+
+    const statusEl = document.getElementById("status");
+    const logEl = document.getElementById("log");
+
+    function log(msg, type) {
+      const div = document.createElement("div");
+      div.textContent = msg;
+      if (type) div.className = type;
+      logEl.appendChild(div);
+    }
+
+    async function fetchGame() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
+      if (!res.ok) throw new Error(`game取得失敗(${res.status})`);
+      return await res.json();
+    }
+
+    function jump(path) {
+      location.href = `/frontend/${path}?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
+    }
+
+    async function sync() {
+      if (!gameId || !playerId) {
+        statusEl.textContent = "game_id / player_id がURLにありません。";
+        return;
+      }
+      try {
+        const g = await fetchGame();
+        const st = String(g.status || "").toUpperCase();
+        statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span>`;
+
+        // 夜が終わってDAY_DISCUSSIONになっていたら昼へ
+        if (st === "DAY_DISCUSSION") jump("day.html");
+        // FINISHEDなら結果へ（今はrole_confirmへ逃がす）
+        if (st === "FINISHED" || st === "VILLAGE_WIN" || st === "WOLF_WIN") {
+          log("ゲームが終了しています。", "success");
+          jump("role_confirm.html");
+        }
+      } catch (e) {
+        console.error(e);
+        log(String(e), "error");
+        statusEl.textContent = "状態取得に失敗しました。";
+      }
+    }
+
+    // ポーリングで状態変化を追う
+    setInterval(sync, 1500);
+
+    document.getElementById("refresh").addEventListener("click", sync);
+    document.getElementById("go-morning").addEventListener("click", () => jump("morning.html"));
+    document.getElementById("go-night").addEventListener("click", () => jump("role_confirm.html"));
+
+    sync();
+  </script>
+</body>
+</html>

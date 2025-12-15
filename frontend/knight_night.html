@@ -5,88 +5,188 @@
   <title>夜フェーズ - 騎士</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { font-family: system-ui, sans-serif; margin: 16px; }
+    body { font-family: system-ui, sans-serif; margin: 16px; background:#f5f5f5; }
     h1 { font-size: 1.4rem; margin-bottom: 8px; }
-    .info { font-size: 0.9rem; margin-bottom: 12px; color: #555; }
-    .members {
-      display: grid;
+
+    .header-row{
+      display:flex; flex-wrap:wrap; gap:8px;
+      justify-content:space-between; align-items:baseline;
+      margin-bottom:8px;
+    }
+    .header-main{ font-size:1.1rem; font-weight:600; }
+    .header-sub{ font-size:0.85rem; color:#666; }
+    .you-info{ font-size:0.85rem; color:#444; }
+
+    .members{
+      display:grid;
       grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-      gap: 8px;
-      margin-bottom: 16px;
+      gap:8px;
+      margin-bottom:16px;
     }
-    .member-card {
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      padding: 8px;
-      text-align: center;
-      cursor: pointer;
-      user-select: none;
-      background: #fff;
+    .member-card{
+      border:1px solid #ccc; border-radius:8px;
+      padding:8px; text-align:center;
+      cursor:pointer; user-select:none;
+      background:#fff; font-size:0.9rem;
+      display:flex; flex-direction:column; gap:4px; min-height:72px;
+      box-shadow:0 1px 2px rgba(0,0,0,0.04);
     }
-    .member-card.dead { opacity: 0.4; cursor: not-allowed; }
-    .member-card.self { opacity: 0.4; cursor: not-allowed; }
-    .member-card.selected {
-      border-color: #0066cc;
-      box-shadow: 0 0 0 2px rgba(0,102,204,0.2);
+    .member-card .name{ font-weight:600; }
+    .member-card .sub{ font-size:0.75rem; color:#777; }
+    .member-card.dead,.member-card.self{ opacity:0.4; cursor:not-allowed; }
+    .member-card.selected{
+      border-color:#0066cc;
+      box-shadow:0 0 0 2px rgba(0,102,204,0.18);
+      transform: translateY(-1px);
     }
-    button {
-      padding: 8px 16px;
-      border-radius: 8px;
-      border: none;
-      font-size: 1rem;
-    }
-    button:disabled { opacity: 0.5; }
-    .primary { background: #0066cc; color: #fff; }
-    .log { margin-top: 16px; font-size: 0.9rem; white-space: pre-wrap; }
-    .error { color: #b00020; }
-    .success { color: #006400; }
+
+    button{ padding:8px 16px; border-radius:999px; border:none; font-size:1rem; }
+    button:disabled{ opacity:0.5; }
+    .primary{ background:#0066cc; color:#fff; }
+
+    .status{ font-size:0.9rem; margin-bottom:8px; color:#444; }
+    .log{ margin-top:16px; font-size:0.9rem; white-space:pre-wrap; }
+    .log > div{ margin-bottom:4px; }
+    .error{ color:#b00020; }
+    .success{ color:#006400; }
   </style>
 </head>
 <body>
   <h1>夜フェーズ：騎士</h1>
-  <div class="info">
-    あなたの役職：<strong>騎士</strong><br>
-    今夜、<strong>1人だけ</strong>を護衛できます。<br>
-    自分と死亡者は選べません（自己護衛禁止）。
+
+  <div class="header-row">
+    <div>
+      <div class="header-main">今夜の護衛</div>
+      <div class="header-sub">自分と死亡者は選べません（自己護衛禁止の場合）。</div>
+    </div>
+    <div class="you-info">
+      あなた：<strong id="me-name">（読み込み中）</strong>（騎士）
+    </div>
   </div>
 
-  <div id="status" class="info"></div>
-
+  <div id="status" class="status"></div>
   <div id="member-list" class="members"></div>
 
   <button id="guard-btn" class="primary" disabled>このプレイヤーを護衛する</button>
-
   <div id="result" class="log"></div>
 
   <script src="/frontend/js/night_common.js"></script>
   <script>
-    JinrouNight.initNightRolePage({
-      expectedRole: 'knight',
-      elements: {
-        statusId: 'status',
-        membersId: 'member-list',
-        buttonId: 'guard-btn',
-        resultId: 'result',
-      },
-      buildEndpoint: (gameId) =>
-        `/api/games/${encodeURIComponent(gameId)}/knight/guard`,
-      buildRequestBody: ({ me, targetMember }) => ({
-        knight_member_id: me.player_id,
-        target_member_id: targetMember.id,
-      }),
-      buildSuccessMessage: ({ data, targetMember }) => {
-        const name = data.target_name || targetMember.name || '相手';
-        return `🛡 ${name} さんを護衛しました。襲撃が来ても守れるかもしれません。`;
-      },
-      texts: {
-        loadingMe: '騎士の情報を読み込み中...',
-        loadingGame: 'プレイヤー一覧を取得中...',
-        selectPrompt: '護衛する相手を選んでください。',
-        roleMismatch:
-          'あなたは騎士ではありません。この画面からは操作できません。',
-        doneStatus: '今夜の護衛は完了しました。他の人のターンを待ってください。',
-      },
-    });
+    (function () {
+      const params = new URLSearchParams(location.search);
+      const game_id = params.get("game_id");
+      const player_id = params.get("player_id");
+
+      // ★追加：勝敗確定なら result.html へ
+      setupAutoResultRedirect(game_id, player_id);
+
+      const meNameEl = document.getElementById("me-name");
+
+      JinrouNight.initNightRolePage({
+        expectedRole: "knight",
+        elements: {
+          statusId: "status",
+          membersId: "member-list",
+          buttonId: "guard-btn",
+          resultId: "result",
+        },
+
+        checkAlreadyDone: async ({ gameId, me }) => {
+          const url =
+            `/api/games/${encodeURIComponent(gameId)}` +
+            `/knight/${encodeURIComponent(me.player_id)}/guard/status`;
+
+          const res = await fetch(url);
+          if (!res.ok) return { done: false };
+
+          const data = await res.json();
+          if (!data.done) return { done: false };
+
+          return {
+            done: true,
+            kind: "knight_guard",              // ←種別（任意だが付けておくと扱いやすい）
+            target_member_id: data.target_member_id || null,
+            message: "今夜の護衛はすでに完了しています。",
+          };
+        },
+
+
+
+        // ★ 正しいURL：/knight/{knight_member_id}/guard
+        buildEndpoint: (gameId, me) => {
+          if (!me || !me.player_id) throw new Error("騎士情報が不正です（player_idなし）");
+          return `/api/games/${encodeURIComponent(gameId)}/knight/${encodeURIComponent(me.player_id)}/guard`;
+        },
+
+        // ★ Bodyは target_member_id のみでOK
+        buildRequestBody: ({ targetMember }) => ({
+          target_member_id: targetMember.id,
+        }),
+
+        buildSuccessMessage: ({ data, targetMember }) => {
+          const name = data.target_name || targetMember.display_name || targetMember.name || "相手";
+          return `🛡️ 今夜は ${name} さんを護衛しました。`;
+        },
+
+        texts: {
+          loadingMe: "騎士の情報を読み込み中...",
+          loadingGame: "プレイヤー一覧を取得中...",
+          selectPrompt: "護衛する相手を選んでください。",
+          roleMismatch: "あなたは騎士ではありません。この画面からは操作できません。",
+          doneStatus: "今夜の護衛は完了しました。他の人のターンを待ってください。",
+        },
+
+        renderMembers: ({ members, me, containerEl, expectedRole, actionDone, onSelect }) => {
+          if (!containerEl || !Array.isArray(members)) return;
+          containerEl.innerHTML = "";
+
+          const selfId = me?.player_id || me?.game_member_id;
+
+          // ヘッダー「あなた：◯◯」
+          const meMember = members.find((m) => m.id === selfId);
+          meNameEl.textContent = meMember?.display_name || meMember?.name || "あなた";
+
+          members.forEach((m) => {
+            const card = document.createElement("div");
+            card.className = "member-card";
+
+            const isAlive = (m.is_alive !== undefined) ? m.is_alive : (m.alive !== false);
+            const isSelf = selfId && m.id === selfId;
+            const roleMismatch = expectedRole && me?.role !== expectedRole;
+
+            if (!isAlive) card.classList.add("dead");
+            if (isSelf) card.classList.add("self");
+
+            const name = m.display_name || m.name || `プレイヤー ${m.id}`;
+
+            const nameDiv = document.createElement("div");
+            nameDiv.className = "name";
+            nameDiv.textContent = name;
+
+            const subDiv = document.createElement("div");
+            subDiv.className = "sub";
+            if (!isAlive) subDiv.textContent = "死亡しているため護衛できません";
+            else if (isSelf) subDiv.textContent = "自分自身は護衛できません";
+            else subDiv.textContent = "タップして護衛対象として選択";
+
+            card.appendChild(nameDiv);
+            card.appendChild(subDiv);
+
+            if (!isAlive || isSelf || actionDone || roleMismatch) {
+              card.style.pointerEvents = "none";
+            } else {
+              card.addEventListener("click", () => {
+                containerEl.querySelectorAll(".member-card").forEach((el) => el.classList.remove("selected"));
+                card.classList.add("selected");
+                onSelect(m);
+              });
+            }
+
+            containerEl.appendChild(card);
+          });
+        },
+      });
+    })();
   </script>
 </body>
 </html>

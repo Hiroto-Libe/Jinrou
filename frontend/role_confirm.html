@@ -1,199 +1,177 @@
-<!-- frontend/role_confirm.html -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>役職確認</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: radial-gradient(circle at top, #1f2933, #050816);
-            color: #f9fafb;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-        }
-        .card {
-            width: 90%;
-            max-width: 420px;
-            background: rgba(15, 23, 42, 0.92);
-            border-radius: 16px;
-            padding: 28px 20px 24px;
-            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-            text-align: center;
-            animation: fadeInUp 0.6s ease-out;
-        }
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(12px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .title { font-size: 20px; letter-spacing: 0.15em; opacity: 0.8; margin-bottom: 12px; }
-        .role-label { font-size: 14px; opacity: 0.7; margin-bottom: 4px; }
-        .role-name { font-size: 32px; font-weight: 700; letter-spacing: 0.08em; margin-bottom: 12px; }
-        .role-tag { display: inline-block; font-size: 12px; padding: 4px 10px; border-radius: 999px;
-                    border: 1px solid rgba(148, 163, 184, 0.6); opacity: 0.9; margin-bottom: 14px; }
-        .description { font-size: 14px; line-height: 1.6; opacity: 0.85; margin-bottom: 20px; }
-        .warning { font-size: 12px; color: #fbbf24; opacity: 0.9; margin-bottom: 16px; }
-        .hint { font-size: 11px; opacity: 0.6; margin-bottom: 4px; }
-        .button {
-            width: 100%; border: none; border-radius: 999px;
-            padding: 12px 0; font-size: 16px; font-weight: 600;
-            letter-spacing: 0.1em; text-transform: uppercase;
-            cursor: pointer; transition: transform 0.08s ease-out, box-shadow 0.08s ease-out, opacity 0.2s;
-        }
-        .button-primary {
-            background: linear-gradient(135deg, #06b6d4, #3b82f6);
-            color: #0b1120;
-            box-shadow: 0 10px 22px rgba(37, 99, 235, 0.45);
-        }
-        .button-primary:active { transform: translateY(1px); box-shadow: 0 6px 16px rgba(37, 99, 235, 0.45); }
-        .button-disabled { opacity: 0.4; box-shadow: none; cursor: default; }
-        .countdown { font-size: 11px; opacity: 0.8; margin-top: 6px; }
-        .error { font-size: 13px; color: #fecaca; margin-top: 12px; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>役職確認</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: radial-gradient(circle at top, #1f2933, #050816);
+      color: #f9fafb;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .card {
+      width: 90%;
+      max-width: 420px;
+      background: rgba(15, 23, 42, 0.92);
+      border-radius: 16px;
+      padding: 28px 20px 24px;
+      text-align: center;
+      box-shadow: 0 18px 40px rgba(0,0,0,.45);
+    }
+    .title { font-size: 20px; letter-spacing: .15em; opacity:.85; margin-bottom: 12px; }
+    .role-label { font-size: 14px; opacity:.7; }
+    .role-name { font-size: 32px; font-weight:700; margin: 8px 0; }
+    .role-tag {
+      display:inline-block; padding:4px 10px; border-radius:999px;
+      border:1px solid rgba(148,163,184,.6); font-size:12px; margin-bottom:14px;
+    }
+    .description { font-size:14px; line-height:1.6; opacity:.85; margin-bottom:20px; }
+    .warning { font-size:12px; color:#fbbf24; margin-bottom:16px; }
+    button {
+      width:100%; border:none; border-radius:999px;
+      padding:12px 0; font-size:16px; font-weight:600;
+      letter-spacing:.1em; cursor:pointer;
+      background: linear-gradient(135deg,#06b6d4,#3b82f6);
+      color:#0b1120;
+    }
+    button:disabled { opacity:.4; cursor:default; }
+    .countdown { font-size:11px; opacity:.75; margin-top:6px; }
+    .error { color:#fecaca; font-size:13px; margin-top:12px; }
+  </style>
 </head>
 <body>
-<!-- DEBUG: role_confirm v2 -->
 <div class="card">
-    <div class="title">ROLE CONFIRM</div>
+  <div class="title">ROLE CONFIRM</div>
 
-    <div class="role-label">あなたの役職</div>
-    <div class="role-name" id="roleName">...</div>
-    <div class="role-tag" id="teamTag"></div>
+  <div class="role-label">あなたの役職</div>
+  <div class="role-name" id="roleName">...</div>
+  <div class="role-tag" id="teamTag"></div>
 
-    <div class="description" id="roleDescription">
-        役職情報を取得しています…
-    </div>
+  <div class="description" id="roleDesc">読み込み中…</div>
 
-    <div class="warning">
-        ※ この画面は周りの人に見られないように注意してください。
-    </div>
+  <div class="warning">
+    ※ この画面は周囲の人に見られないよう注意してください
+  </div>
 
-    <div class="hint">下のボタンを押すとゲームが始まります。</div>
+  <button id="okBtn" disabled>準備OK</button>
+  <div class="countdown" id="countdown">2秒後に有効になります</div>
 
-    <button id="okButton" class="button button-primary button-disabled" disabled>
-        準備OK
-    </button>
-
-    <div class="countdown" id="countdownText">
-        数秒後にボタンが有効になります…
-    </div>
-
-    <div class="error" id="errorText"></div>
+  <div class="error" id="error"></div>
 </div>
 
+<!-- ★追加：勝敗自動遷移の共通関数を使う -->
+<script src="/frontend/js/night_common.js"></script>
+
 <script>
-    // URL パラメータから game_id / player_id を取得
-    const params = new URLSearchParams(window.location.search);
-    const gameId = params.get("game_id");
-    const playerId = params.get("player_id");
+  const params = new URLSearchParams(location.search);
+  const gameId = params.get("game_id");
+  const playerId = params.get("player_id");
 
-    const roleNameEl = document.getElementById("roleName");
-    const roleDescEl = document.getElementById("roleDescription");
-    const teamTagEl  = document.getElementById("teamTag");
-    const okButton   = document.getElementById("okButton");
-    const countdownText = document.getElementById("countdownText");
-    const errorText  = document.getElementById("errorText");
+  // ★追加：初期表示で勝敗確定なら result.html へ
+  // (judge!=ONGOING のときだけ飛ぶ)
+  if (gameId && playerId && typeof setupAutoResultRedirect === "function") {
+    setupAutoResultRedirect(gameId, playerId);
+  }
 
-    const roleInfo = {
-        villager: {
-            label: "村人",
-            team: "村人陣営",
-            desc: "特別な能力はありませんが、話し合いと投票で人狼を見つけ出しましょう。"
-        },
-        seer: {
-            label: "占い師",
-            team: "村人陣営",
-            desc: "毎晩ひとりを占い、その人物が人狼かどうかを知ることができます。"
-        },
-        medium: {
-            label: "霊媒師",
-            team: "村人陣営",
-            desc: "処刑されたプレイヤーが人狼かどうかを知ることができます。"
-        },
-        knight: {
-            label: "騎士",
-            team: "村人陣営",
-            desc: "毎晩ひとりを護衛し、人狼の襲撃から守ることができます（自己護衛はできません）。"
-        },
-        wolf: {
-            label: "人狼",
-            team: "人狼陣営",
-            desc: "仲間の人狼と協力し、毎晩ひとりを襲撃します。正体を隠しつつ村人を減らしましょう。"
-        },
-        madman: {
-            label: "狂人",
-            team: "人狼陣営（村からは人間判定）",
-            desc: "占い・霊媒では人間と判定されますが、勝利条件は人狼側です。村を混乱させましょう。"
-        }
-    };
+  const roleNameEl = document.getElementById("roleName");
+  const roleDescEl = document.getElementById("roleDesc");
+  const teamTagEl  = document.getElementById("teamTag");
+  const okBtn = document.getElementById("okBtn");
+  const errorEl = document.getElementById("error");
+  const countdownEl = document.getElementById("countdown");
 
-    async function fetchRole() {
-        if (!gameId || !playerId) {
-            errorText.textContent = "game_id または player_id が URL に指定されていません。";
-            roleDescEl.textContent = "URL を確認してください。";
-            return;
-        }
+  const roleInfo = {
+    villager: { name:"村人", team:"村人陣営", desc:"特別な能力はありません。議論と投票で人狼を見つけましょう。" },
+    seer: { name:"占い師", team:"村人陣営", desc:"毎晩1人を占い、人狼かどうかを知ることができます。" },
+    knight: { name:"騎士", team:"村人陣営", desc:"毎晩1人を護衛し、人狼の襲撃から守れます。" },
+    werewolf: { name:"人狼", team:"人狼陣営", desc:"仲間と協力し、毎晩1人を襲撃します。" },
+    madman: { name:"狂人", team:"人狼陣営", desc:"村人を混乱させ、人狼を勝利に導きます。" },
+  };
 
-        try {
-            // ★ ここはあなたの API 実装に合わせて調整
-            const res = await fetch(`/api/games/${gameId}/me?player_id=${encodeURIComponent(playerId)}`);
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-            const data = await res.json();
-            const roleKey = data.role;  // "villager" など
+  async function fetchMe() {
+    const res = await fetch(`/api/games/${gameId}/me?player_id=${encodeURIComponent(playerId)}`);
+    if (!res.ok) throw new Error("役職取得失敗");
+    return await res.json();
+  }
 
-            const info = roleInfo[roleKey] ?? {
-                label: data.role,
-                team: "不明な陣営",
-                desc: "この役職の説明は未設定です。"
-            };
+  async function fetchGame() {
+    const res = await fetch(`/api/games/${gameId}`);
+    if (!res.ok) throw new Error("ゲーム取得失敗");
+    return await res.json();
+  }
 
-            roleNameEl.textContent = info.label;
-            teamTagEl.textContent = info.team;
-            roleDescEl.textContent = info.desc;
-        } catch (e) {
-            console.error(e);
-            errorText.textContent = "役職情報の取得に失敗しました。ページを再読み込みしてください。";
-            roleDescEl.textContent = "エラーが発生しました。";
-        }
+  function goto(path) {
+    location.href = `/frontend/${path}?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
+  }
+
+  async function decideNext() {
+    // ★追加：ボタン押下時にも勝敗確定チェック（保険）
+    if (typeof redirectIfFinished === "function") {
+      await redirectIfFinished(gameId, playerId);
     }
 
-    // 誤タップ防止用の簡易カウントダウン
-    let wait = 2;
-    const timerId = setInterval(() => {
-        if (wait > 0) {
-            countdownText.textContent = `${wait} 秒後にボタンが有効になります`;
-            wait--;
-        } else {
-            clearInterval(timerId);
-            okButton.disabled = false;
-            okButton.classList.remove("button-disabled");
-            countdownText.textContent = "準備ができたら「準備OK」を押してください";
-        }
+    const [me, game] = await Promise.all([fetchMe(), fetchGame()]);
+    const role = me.role;
+    const status = String(game.status || "").toUpperCase();
+
+    if (status === "NIGHT") {
+      if (role === "seer") return goto("seer_night.html");
+      if (role === "knight") return goto("knight_night.html");
+      if (role === "werewolf") return goto("night_wolf_attack.html");
+      return goto("night_wait.html"); // 村人・狂人
+    }
+
+    if (status === "DAY_DISCUSSION") return goto("day.html");
+
+    // ★変更：FINISHED は result.html へ
+    if (status === "FINISHED") return goto("result.html");
+
+    // fallback
+    goto("day.html");
+  }
+
+  async function init() {
+    if (!gameId || !playerId) {
+      errorEl.textContent = "URLに game_id / player_id がありません";
+      return;
+    }
+
+    // ★追加：init中にも勝敗確定チェック（表示前に吸い込む）
+    if (typeof redirectIfFinished === "function") {
+      await redirectIfFinished(gameId, playerId);
+    }
+
+    try {
+      const me = await fetchMe();
+      const info = roleInfo[me.role] || { name: me.role, team:"不明", desc:"説明なし" };
+      roleNameEl.textContent = info.name;
+      teamTagEl.textContent = info.team;
+      roleDescEl.textContent = info.desc;
+    } catch (e) {
+      errorEl.textContent = "役職情報の取得に失敗しました";
+    }
+
+    // 誤タップ防止カウントダウン
+    let sec = 2;
+    const timer = setInterval(() => {
+      if (sec > 0) {
+        countdownEl.textContent = `${sec--}秒後に有効になります`;
+      } else {
+        clearInterval(timer);
+        okBtn.disabled = false;
+        countdownEl.textContent = "準備ができたら押してください";
+      }
     }, 1000);
+  }
 
-    okButton.addEventListener("click", () => {
-        if (okButton.disabled) return;
-
-        // TODO: 役職確認済みAPIを叩いたり、次の画面へ遷移したりする
-        // 例:
-        // fetch(`/api/v1/games/${gameId}/role_confirm`, { method: "POST", ... })
-
-        // とりあえずは昼フェーズモックに飛ばしておく
-        const dayNo = 1; // 最初は Day 1 固定でOK
-        window.location.href =
-            `/frontend/day_mock.html?game_id=${gameId}&player_id=${playerId}&day=${dayNo}`;
-    });
-
-    // 初期化：役職情報を取得
-    fetchRole();
+  okBtn.addEventListener("click", decideNext);
+  init();
 </script>
-
 </body>
 </html>

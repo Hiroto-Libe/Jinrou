@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>Jinrou | ルーム参加</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; background:#f5f5f5; }
+    h1 { margin:0 0 6px; font-size:1.25rem; }
+    .muted { color:#666; font-size:.92rem; }
+    .box { background:#fff; border:1px solid #ddd; border-radius:12px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,.04); margin:12px 0; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; font-size:.82rem; color:#333; }
+    input { padding:10px 12px; border:1px solid #ddd; border-radius:10px; font-size:1rem; flex:1; min-width: 220px; }
+    button { padding:10px 14px; border-radius:999px; border:none; font-size:1rem; cursor:pointer; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .primary { background:#0066cc; color:#fff; }
+    .ghost { background:#eee; color:#333; }
+    .err { color:#b00020; white-space:pre-wrap; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.9rem; }
+    .list { margin:8px 0 0; padding-left: 18px; }
+    .small { font-size:.85rem; color:#666; }
+    .hr { height:1px; background:#eee; margin:10px 0; }
+  </style>
+</head>
+<body>
+  <h1>🐺 ルーム参加</h1>
+  <div class="muted">名前を登録すると、司会が開始したタイミングで自動的に役職確認へ進みます。</div>
+
+  <div class="box">
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <div>room_name：<span class="pill" id="roomName">（読み込み中）</span></div>
+        <div>room_id：<span class="pill mono" id="roomId">-</span></div>
+        <div>あなた：<span class="pill" id="youName">未登録</span></div>
+      </div>
+      <div class="row">
+        <button class="ghost" id="clearBtn">この端末の参加情報を消す</button>
+      </div>
+    </div>
+
+    <div class="hr"></div>
+
+    <div style="font-weight:700;">① 名前を登録（roster）</div>
+    <div class="row" style="margin-top:8px;">
+      <input id="nameInput" placeholder="表示名（例：さとう）" autocomplete="off" />
+      <button class="primary" id="joinBtn">参加する</button>
+    </div>
+    <div class="small">※ 参加後は「司会が開始するまで待機」になります。</div>
+
+    <div class="hr"></div>
+
+    <div style="font-weight:700;">② 進行待ち（自動遷移）</div>
+    <div class="row" style="margin-top:8px;">
+      <div>状態：<span class="pill" id="statePill">未参加</span></div>
+      <div>検出した game_id：<span class="pill mono" id="gameIdPill">未検出</span></div>
+      <div>あなたの room_member_id：<span class="pill mono" id="roomMemberPill">未確定</span></div>
+    </div>
+
+    <details style="margin-top:10px;">
+      <summary class="small">（補助）game_id が検出できない場合</summary>
+      <div class="small" style="margin-top:6px;">
+        司会から game_id を教えてもらって貼り付けてください（貼ると自動遷移できます）。
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <input id="manualGameId" class="mono" placeholder="game_id を貼り付け" />
+        <button class="ghost" id="setGameIdBtn">game_id を設定</button>
+      </div>
+    </details>
+  </div>
+
+  <div class="box">
+    <div style="font-weight:700;">ルームの roster（参加表明）</div>
+    <ul class="list" id="rosterList"></ul>
+    <div class="small">※ roster は「参加表明リスト」。司会が開始時に members へ確定します。</div>
+  </div>
+
+  <div class="box">
+    <div style="font-weight:700;">ログ</div>
+    <div id="log" class="small"></div>
+    <div id="error" class="err"></div>
+  </div>
+
+<script>
+  const API = {
+    getRoom: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}`),
+    addToRoster: (roomId, displayName) =>
+      fetch(`/api/rooms/${encodeURIComponent(roomId)}/roster`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: displayName }),
+      }),
+    listRoster: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}/roster`),
+    listRoomMembers: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}/members`),
+    listRooms: () => fetch(`/api/rooms`),
+    listGameMembers: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}/members`),
+  };
+
+  const qs = new URLSearchParams(location.search);
+  const roomId = qs.get("room_id");
+
+  const LS_PREFIX = `jinrou_room_join_${roomId || "unknown"}_`;
+  const LS = {
+    name: LS_PREFIX + "name",
+    joined: LS_PREFIX + "joined",
+    roomMemberId: LS_PREFIX + "room_member_id",
+    gameId: LS_PREFIX + "game_id",
+    roomName: LS_PREFIX + "room_name",
+  };
+
+  const state = {
+    roomId,
+    roomName: localStorage.getItem(LS.roomName) || "",
+    name: localStorage.getItem(LS.name) || "",
+    joined: localStorage.getItem(LS.joined) === "1",
+    roomMemberId: localStorage.getItem(LS.roomMemberId) || "",
+    gameId: localStorage.getItem(LS.gameId) || "",
+    timer: null,
+  };
+
+  const elRoomId = document.getElementById("roomId");
+  const elRoomName = document.getElementById("roomName");
+  const elYouName = document.getElementById("youName");
+  const elState = document.getElementById("statePill");
+  const elGameId = document.getElementById("gameIdPill");
+  const elRoomMember = document.getElementById("roomMemberPill");
+
+  const elRosterList = document.getElementById("rosterList");
+  const elLog = document.getElementById("log");
+  const elErr = document.getElementById("error");
+
+  const nameInput = document.getElementById("nameInput");
+  const joinBtn = document.getElementById("joinBtn");
+  const clearBtn = document.getElementById("clearBtn");
+
+  const manualGameId = document.getElementById("manualGameId");
+  const setGameIdBtn = document.getElementById("setGameIdBtn");
+
+  function log(msg){ elLog.textContent = msg; }
+  function err(msg){ elErr.textContent = msg; }
+  function clearMsg(){ log(""); err(""); }
+
+  async function toJson(res){
+    const data = await res.json().catch(()=> ({}));
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  function setStatePill(text){ elState.textContent = text; }
+
+  function renderMeta(){
+    elRoomId.textContent = state.roomId || "（room_idなし）";
+    elRoomName.textContent = state.roomName ? state.roomName : "（名称なし）";
+    elYouName.textContent = state.name ? state.name : "未登録";
+    elGameId.textContent = state.gameId ? state.gameId : "未検出";
+    elRoomMember.textContent = state.roomMemberId ? state.roomMemberId : "未確定";
+
+    nameInput.value = state.name || "";
+    joinBtn.disabled = !state.roomId || state.joined;
+  }
+
+  function jumpRoleConfirm(gameId, playerId){
+    location.href = `/frontend/role_confirm.html?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
+  }
+
+  function normalizeRoomsPayload(data){
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.items)) return data.items;
+    if (Array.isArray(data.rooms)) return data.rooms;
+    return [];
+  }
+
+  function pickGameIdFromRoom(roomObj){
+    return roomObj.game_id || roomObj.gameId || roomObj.current_game_id || roomObj.currentGameId || "";
+  }
+
+  function findRoomMemberIdByName(members, name){
+    if (!Array.isArray(members) || !name) return "";
+    const hit = members.find(m => (m.display_name || m.name) === name);
+    return hit?.id || "";
+  }
+
+  function findGameMemberByRoomMemberId(gameMembers, roomMemberId){
+    if (!Array.isArray(gameMembers) || !roomMemberId) return null;
+    return gameMembers.find(gm => gm.room_member_id === roomMemberId) || null;
+  }
+
+  async function refreshRoomName(){
+    if (!state.roomId) return;
+    const r = await toJson(await API.getRoom(state.roomId));
+    if (!r.ok) return;
+    const nm = r.data.name || r.data.room_name || r.data.roomName || "";
+    if (nm) {
+      state.roomName = nm;
+      localStorage.setItem(LS.roomName, nm);
+      renderMeta();
+    } else if (!state.roomName) {
+      state.roomName = "";
+      renderMeta();
+    }
+  }
+
+  async function refreshRoster(){
+    const r = await toJson(await API.listRoster(state.roomId));
+    if (!r.ok) return;
+    const roster = Array.isArray(r.data) ? r.data : (r.data.items || []);
+    elRosterList.innerHTML = "";
+    if (!Array.isArray(roster) || roster.length === 0) {
+      const li = document.createElement("li");
+      li.textContent = "（まだ誰も参加していません）";
+      elRosterList.appendChild(li);
+      return;
+    }
+    for (const x of roster){
+      const li = document.createElement("li");
+      li.textContent = x.display_name || x.name || x.id || "unknown";
+      elRosterList.appendChild(li);
+    }
+  }
+
+  async function detectRoomMemberId(){
+    if (state.roomMemberId) return state.roomMemberId;
+    if (!state.name) return "";
+
+    const r = await toJson(await API.listRoomMembers(state.roomId));
+    if (!r.ok) return "";
+    const members = Array.isArray(r.data) ? r.data : (r.data.items || []);
+    const id = findRoomMemberIdByName(members, state.name);
+    if (id) {
+      state.roomMemberId = id;
+      localStorage.setItem(LS.roomMemberId, id);
+      renderMeta();
+    }
+    return id;
+  }
+
+  async function detectGameId(){
+    if (state.gameId) return state.gameId;
+
+    const r = await toJson(await API.listRooms());
+    if (r.ok) {
+      const rooms = normalizeRoomsPayload(r.data);
+      const room = rooms.find(x => (x.id || x.room_id) === state.roomId);
+      const gid = room ? pickGameIdFromRoom(room) : "";
+      if (gid) {
+        state.gameId = gid;
+        localStorage.setItem(LS.gameId, gid);
+        renderMeta();
+        return gid;
+      }
+    }
+    return "";
+  }
+
+  async function tryRedirect(){
+    if (!state.gameId || !state.roomMemberId) return;
+
+    const r = await toJson(await API.listGameMembers(state.gameId));
+    if (!r.ok) return;
+
+    const gameMembers = Array.isArray(r.data) ? r.data : (r.data.items || []);
+    const me = findGameMemberByRoomMemberId(gameMembers, state.roomMemberId);
+    if (!me) return;
+
+    setStatePill("開始済み（役職確認へ移動）");
+    log("開始を検出しました。役職確認へ移動します…");
+    jumpRoleConfirm(state.gameId, me.id);
+  }
+
+  async function tick(){
+    if (!state.roomId) return;
+
+    await refreshRoomName();
+    await refreshRoster();
+
+    if (!state.joined) {
+      setStatePill("未参加");
+      return;
+    }
+
+    setStatePill("待機中（司会の開始待ち）");
+
+    await detectRoomMemberId();
+    await detectGameId();
+
+    if (!state.roomMemberId) {
+      log("司会の開始待ちです（room_members 確定を待っています）");
+      return;
+    }
+    if (!state.gameId) {
+      log("司会の開始待ちです（game_id を検出できていません。必要なら手動入力してください）");
+      return;
+    }
+    await tryRedirect();
+  }
+
+  function startPolling(){
+    if (state.timer) clearInterval(state.timer);
+    state.timer = setInterval(tick, 2000);
+    tick();
+  }
+
+  joinBtn.addEventListener("click", async () => {
+    clearMsg();
+    if (!state.roomId) { err("URLに room_id がありません"); return; }
+
+    const name = nameInput.value.trim();
+    if (!name) { err("表示名を入力してください"); return; }
+
+    log("参加登録中…");
+    const r = await toJson(await API.addToRoster(state.roomId, name));
+    if (!r.ok) { err(`参加登録失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+
+    state.name = name;
+    state.joined = true;
+    localStorage.setItem(LS.name, name);
+    localStorage.setItem(LS.joined, "1");
+
+    setStatePill("待機中（司会の開始待ち）");
+    log("参加登録しました。司会が開始するまで待機してください。");
+    renderMeta();
+    startPolling();
+  });
+
+  setGameIdBtn.addEventListener("click", () => {
+    clearMsg();
+    const gid = manualGameId.value.trim();
+    if (!gid) { err("game_id を入力してください"); return; }
+    state.gameId = gid;
+    localStorage.setItem(LS.gameId, gid);
+    renderMeta();
+    log("game_id を設定しました。開始済みなら自動で遷移します。");
+    tick();
+  });
+
+  clearBtn.addEventListener("click", () => {
+    localStorage.removeItem(LS.name);
+    localStorage.removeItem(LS.joined);
+    localStorage.removeItem(LS.roomMemberId);
+    localStorage.removeItem(LS.gameId);
+    localStorage.removeItem(LS.roomName);
+
+    state.roomName = "";
+    state.name = "";
+    state.joined = false;
+    state.roomMemberId = "";
+    state.gameId = "";
+
+    manualGameId.value = "";
+    nameInput.value = "";
+
+    clearMsg();
+    setStatePill("未参加");
+    log("この端末の参加情報を消しました。必要なら再参加してください。");
+    renderMeta();
+    refreshRoomName();
+    refreshRoster();
+  });
+
+  (function boot(){
+    renderMeta();
+
+    if (!state.roomId) {
+      setStatePill("room_id がありません");
+      err("URLに room_id がありません。例：/frontend/room_join.html?room_id=XXXX");
+      joinBtn.disabled = true;
+      return;
+    }
+
+    refreshRoomName();
+    refreshRoster();
+
+    if (state.joined) {
+      setStatePill("待機中（司会の開始待ち）");
+      log("参加済みです。開始を待っています…");
+      startPolling();
+    } else {
+      setStatePill("未参加");
+    }
+  })();
+</script>
+</body>
+</html>

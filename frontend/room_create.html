@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>Jinrou | ルーム作成（司会用）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; background:#f5f5f5; }
+    h1 { margin:0 0 6px; font-size:1.25rem; }
+    .muted { color:#666; font-size:.92rem; }
+    .box { background:#fff; border:1px solid #ddd; border-radius:12px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,.04); margin:12px 0; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; font-size:.82rem; color:#333; }
+    button { padding:10px 14px; border-radius:999px; border:none; font-size:1rem; cursor:pointer; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .primary { background:#0066cc; color:#fff; }
+    .ghost { background:#eee; color:#333; }
+    .err { color:#b00020; white-space:pre-wrap; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.9rem; }
+    .urlbox { background:#0b1220; color:#e5e7eb; border-radius:12px; padding:10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.85rem; overflow:auto; }
+    .small { font-size:.85rem; color:#666; }
+    .hr { height:1px; background:#eee; margin:10px 0; }
+    table { width:100%; border-collapse:collapse; margin-top:8px; }
+    th, td { border-bottom:1px solid #eee; padding:8px; text-align:left; font-size:.95rem; }
+    th { color:#666; font-weight:600; }
+    input { padding:10px 12px; border:1px solid #ddd; border-radius:10px; font-size:1rem; min-width: 260px; flex: 1; }
+  </style>
+</head>
+<body>
+  <h1>🐺 ルーム作成（司会用）</h1>
+  <div class="muted">Roomを作って参加URLを配布 → rosterが揃ったら確定 → Game作成/開始 → 各自の role_confirm URL を配布</div>
+
+  <div class="box">
+    <div style="font-weight:700;">ルーム名（任意）</div>
+    <div class="small">例）家族人狼 / 12月忘年会 / 友だち会</div>
+    <div class="row" style="margin-top:8px;">
+      <input id="roomNameInput" placeholder="（未入力でもOK）" />
+      <button class="ghost" id="clearBtn">この画面の状態を消す</button>
+      <button class="primary" id="createRoomBtn">Roomを作成</button>
+    </div>
+    <div class="hr"></div>
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <div>room_id：<span class="pill mono" id="roomIdPill">未作成</span></div>
+        <div>room_name：<span class="pill" id="roomNamePill">未設定</span></div>
+        <div>game_id：<span class="pill mono" id="gameIdPill">未作成</span></div>
+        <div>状態：<span class="pill" id="statePill">未開始</span></div>
+      </div>
+    </div>
+    <div class="small">※「状態を消す」はこのブラウザの保存情報のみを消します（サーバDBは消しません）</div>
+  </div>
+
+  <div class="box">
+    <div style="font-weight:700;">① 参加URL（参加者に共有）</div>
+    <div class="small">参加者はこのURLを開いて名前を登録します（roster）</div>
+    <div id="joinArea" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="box">
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <div style="font-weight:700;">② roster（参加表明）</div>
+        <div class="small">人数が揃ったら「rosterを確定」→ members へ変換（bulk_from_roster）</div>
+      </div>
+      <div class="row">
+        <button class="ghost" id="refreshRosterBtn" disabled>roster更新</button>
+        <button class="primary" id="bulkBtn" disabled>rosterを確定（bulk_from_roster）</button>
+      </div>
+    </div>
+    <div id="rosterArea"></div>
+  </div>
+
+  <div class="box">
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <div style="font-weight:700;">③ Game作成 & 開始</div>
+        <div class="small">確定後に Game 作成 → Start（必要なら role_assign）</div>
+      </div>
+      <div class="row">
+        <button class="primary" id="createGameBtn" disabled>Game作成</button>
+        <button class="primary" id="startGameBtn" disabled>Start</button>
+        <button class="ghost" id="assignRolesBtn" disabled>役職割り当て（role_assign）</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div style="font-weight:700;">④ プレイヤーURL（role_confirm）</div>
+    <div class="small">各自に配布するURLです（player_id は GameMember.id）</div>
+    <div id="playersArea" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="box">
+    <div style="font-weight:700;">ログ</div>
+    <div id="log" class="small"></div>
+    <div id="error" class="err"></div>
+  </div>
+
+<script>
+  const API = {
+    createRoom: (payload) => fetch("/api/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload ? JSON.stringify(payload) : null,
+    }),
+    getRoom: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}`),
+
+    listRoster: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}/roster`),
+    bulkFromRoster: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}/members/bulk_from_roster`, { method: "POST" }),
+
+    createGame: (roomId) => fetch("/api/games", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room_id: roomId }),
+    }),
+    startGame: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}/start`, { method: "POST" }),
+    assignRoles: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}/role_assign`, { method: "POST" }),
+    listGameMembers: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}/members`),
+  };
+
+  const LS = {
+    roomId: "jinrou_host_room_id",
+    roomName: "jinrou_host_room_name",
+    gameId: "jinrou_host_game_id",
+    bulkDone: "jinrou_host_bulk_done",
+  };
+
+  const state = {
+    roomId: localStorage.getItem(LS.roomId) || "",
+    roomName: localStorage.getItem(LS.roomName) || "",
+    gameId: localStorage.getItem(LS.gameId) || "",
+    bulkDone: localStorage.getItem(LS.bulkDone) === "1",
+    roster: [],
+    gameMembers: [],
+  };
+
+  const roomNameInput = document.getElementById("roomNameInput");
+  const roomIdPill = document.getElementById("roomIdPill");
+  const roomNamePill = document.getElementById("roomNamePill");
+  const gameIdPill = document.getElementById("gameIdPill");
+  const statePill = document.getElementById("statePill");
+
+  const joinArea = document.getElementById("joinArea");
+  const rosterArea = document.getElementById("rosterArea");
+  const playersArea = document.getElementById("playersArea");
+
+  const logEl = document.getElementById("log");
+  const errEl = document.getElementById("error");
+
+  const createRoomBtn = document.getElementById("createRoomBtn");
+  const refreshRosterBtn = document.getElementById("refreshRosterBtn");
+  const bulkBtn = document.getElementById("bulkBtn");
+
+  const createGameBtn = document.getElementById("createGameBtn");
+  const startGameBtn = document.getElementById("startGameBtn");
+  const assignRolesBtn = document.getElementById("assignRolesBtn");
+
+  const clearBtn = document.getElementById("clearBtn");
+
+  function log(msg){ logEl.textContent = msg; }
+  function err(msg){ errEl.textContent = msg; }
+  function clearMsg(){ log(""); err(""); }
+
+  async function toJson(res){
+    const data = await res.json().catch(()=> ({}));
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  function escapeHtml(s){
+    return String(s ?? "")
+      .replaceAll("&","&amp;").replaceAll("<","&lt;")
+      .replaceAll(">","&gt;").replaceAll('"',"&quot;")
+      .replaceAll("'","&#39;");
+  }
+  function escapeJs(s){
+    return String(s ?? "").replaceAll("\\","\\\\").replaceAll("'","\\'");
+  }
+
+  window.copyText = async (text) => {
+    try { await navigator.clipboard.writeText(text); log("コピーしました"); }
+    catch(e){ err("コピーに失敗しました（ブラウザ権限の可能性）"); }
+  };
+  window.openTab = (url) => window.open(url, "_blank");
+
+  function setState(text){ statePill.textContent = text; }
+
+  function render(){
+    roomNameInput.value = state.roomName || "";
+
+    roomIdPill.textContent = state.roomId ? state.roomId : "未作成";
+    roomNamePill.textContent = state.roomName ? state.roomName : "（名称なし）";
+    gameIdPill.textContent = state.gameId ? state.gameId : "未作成";
+
+    const hasRoom = !!state.roomId;
+    const hasGame = !!state.gameId;
+
+    refreshRosterBtn.disabled = !hasRoom;
+    bulkBtn.disabled = !hasRoom;
+
+    createGameBtn.disabled = !hasRoom;
+    startGameBtn.disabled = !hasGame;
+    assignRolesBtn.disabled = !hasGame;
+
+    if (!hasRoom) {
+      joinArea.innerHTML = `<div class="small">Room作成後に参加URLが表示されます。</div>`;
+    } else {
+      const joinUrl = `${location.origin}/frontend/room_join.html?room_id=${encodeURIComponent(state.roomId)}`;
+      joinArea.innerHTML = `
+        <div class="row" style="justify-content:space-between;">
+          <div style="flex:1;">
+            <div class="urlbox">${escapeHtml(joinUrl)}</div>
+            <div class="small">※ 参加者にこのURLを送ってください（LINE/QR/口頭など）</div>
+          </div>
+          <div class="row">
+            <button class="ghost" onclick="copyText('${escapeJs(joinUrl)}')">コピー</button>
+            <button class="primary" onclick="openTab('${escapeJs(joinUrl)}')">開く</button>
+          </div>
+        </div>
+      `;
+    }
+
+    if (!hasRoom) {
+      rosterArea.innerHTML = `<div class="small">Room作成後に roster を確認できます。</div>`;
+    } else {
+      const rows = (state.roster || []).map((x, i) => {
+        const name = x.display_name || x.name || x.id || `member${i+1}`;
+        return `<tr><td>${escapeHtml(name)}</td></tr>`;
+      }).join("");
+
+      rosterArea.innerHTML = `
+        <div class="row" style="justify-content:space-between; margin-top:8px;">
+          <div>参加人数：<span class="pill">${(state.roster || []).length}</span></div>
+          <div class="small">${state.bulkDone ? "✅ roster確定済み" : "（未確定）"}</div>
+        </div>
+        <table>
+          <thead><tr><th>roster</th></tr></thead>
+          <tbody>${rows || `<tr><td>（まだ誰も参加していません）</td></tr>`}</tbody>
+        </table>
+      `;
+    }
+
+    if (!hasGame || !Array.isArray(state.gameMembers) || state.gameMembers.length === 0) {
+      playersArea.innerHTML = `<div class="small">Game開始後に「プレイヤーURL（role_confirm）」が表示されます。</div>`;
+    } else {
+      const base = `${location.origin}/frontend/role_confirm.html`;
+      const blocks = state.gameMembers.map((gm, idx) => {
+        const name = gm.display_name || gm.name || `player${idx+1}`;
+        const playerId = gm.id;
+        const url = `${base}?game_id=${encodeURIComponent(state.gameId)}&player_id=${encodeURIComponent(playerId)}`;
+        const role = gm.role_type || "-";
+        return `
+          <div class="box" style="border-color:#eee;">
+            <div class="row" style="justify-content:space-between;">
+              <div><b>${escapeHtml(name)}</b> <span class="pill">${escapeHtml(role)}</span></div>
+              <div class="row">
+                <button class="ghost" onclick="copyText('${escapeJs(url)}')">コピー</button>
+                <button class="primary" onclick="openTab('${escapeJs(url)}')">開く</button>
+              </div>
+            </div>
+            <div class="urlbox">${escapeHtml(url)}</div>
+          </div>
+        `;
+      }).join("");
+      playersArea.innerHTML = blocks;
+    }
+  }
+
+  async function refreshRoster(){
+    if (!state.roomId) return;
+    const r = await toJson(await API.listRoster(state.roomId));
+    if (!r.ok) { err(`roster取得失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+    state.roster = Array.isArray(r.data) ? r.data : (r.data.items || []);
+    render();
+  }
+
+  async function refreshGameMembers(){
+    if (!state.gameId) return;
+    const r = await toJson(await API.listGameMembers(state.gameId));
+    if (!r.ok) { err(`game members取得失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+    state.gameMembers = Array.isArray(r.data) ? r.data : (r.data.items || []);
+    render();
+  }
+
+  async function createRoomWithName(roomName){
+    // roomNameが空なら body無しで作る（受け付ける実装が多い）
+    if (!roomName) return await toJson(await API.createRoom(null));
+
+    // 422等でフィールド名が違う可能性に備えて自動リトライ
+    const r1 = await toJson(await API.createRoom({ name: roomName }));
+    if (r1.ok) return r1;
+
+    const r2 = await toJson(await API.createRoom({ room_name: roomName }));
+    return r2.ok ? r2 : r1; // 両方失敗なら最初のエラーを返す
+  }
+
+  async function pullRoomNameIfPossible(roomId){
+    const r = await toJson(await API.getRoom(roomId));
+    if (!r.ok) return;
+    const nm = r.data.name || r.data.room_name || r.data.roomName || "";
+    if (nm) {
+      state.roomName = nm;
+      localStorage.setItem(LS.roomName, nm);
+      render();
+    }
+  }
+
+  clearBtn.addEventListener("click", () => {
+    localStorage.removeItem(LS.roomId);
+    localStorage.removeItem(LS.roomName);
+    localStorage.removeItem(LS.gameId);
+    localStorage.removeItem(LS.bulkDone);
+
+    state.roomId = "";
+    state.roomName = "";
+    state.gameId = "";
+    state.bulkDone = false;
+    state.roster = [];
+    state.gameMembers = [];
+
+    clearMsg();
+    setState("未開始");
+    render();
+  });
+
+  createRoomBtn.addEventListener("click", async () => {
+    clearMsg();
+    setState("Room作成中...");
+
+    const name = roomNameInput.value.trim();
+    state.roomName = name;
+    localStorage.setItem(LS.roomName, name);
+
+    const r = await createRoomWithName(name);
+    if (!r.ok) { setState("エラー"); err(`Room作成失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+
+    const roomId = r.data.id || r.data.room_id || r.data.roomId;
+    if (!roomId) { setState("エラー"); err(`Room作成は成功しましたが room_id が見つかりません: ${JSON.stringify(r.data)}`); return; }
+
+    state.roomId = roomId;
+    localStorage.setItem(LS.roomId, roomId);
+
+    // 新Room作成でgame側はリセット（混乱防止）
+    state.gameId = "";
+    state.bulkDone = false;
+    state.roster = [];
+    state.gameMembers = [];
+    localStorage.removeItem(LS.gameId);
+    localStorage.removeItem(LS.bulkDone);
+
+    // もしサーバがroom_nameを保存して返すなら回収
+    await pullRoomNameIfPossible(roomId);
+
+    setState("Room作成OK（参加URLを配布）");
+    render();
+    await refreshRoster();
+  });
+
+  refreshRosterBtn.addEventListener("click", async () => {
+    clearMsg();
+    setState("roster更新中...");
+    await refreshRoster();
+    setState("roster更新OK");
+  });
+
+  bulkBtn.addEventListener("click", async () => {
+    clearMsg();
+    if (!state.roomId) return;
+    setState("roster確定中（bulk_from_roster）...");
+    const r = await toJson(await API.bulkFromRoster(state.roomId));
+    if (!r.ok) { setState("エラー"); err(`bulk_from_roster失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+    state.bulkDone = true;
+    localStorage.setItem(LS.bulkDone, "1");
+    setState("roster確定OK（Game作成へ）");
+    render();
+  });
+
+  createGameBtn.addEventListener("click", async () => {
+    clearMsg();
+    if (!state.roomId) return;
+    setState("Game作成中...");
+    const r = await toJson(await API.createGame(state.roomId));
+    if (!r.ok) { setState("エラー"); err(`Game作成失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+    const gameId = r.data.id || r.data.game_id || r.data.gameId;
+    if (!gameId) { setState("エラー"); err(`Game作成は成功しましたが game_id が見つかりません: ${JSON.stringify(r.data)}`); return; }
+    state.gameId = gameId;
+    localStorage.setItem(LS.gameId, gameId);
+    setState("Game作成OK（Startへ）");
+    render();
+    await refreshGameMembers();
+  });
+
+  startGameBtn.addEventListener("click", async () => {
+    clearMsg();
+    if (!state.gameId) return;
+    setState("Start中...");
+    const r = await toJson(await API.startGame(state.gameId));
+    if (!r.ok) { setState("エラー"); err(`Start失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+    setState("Start OK（URL配布）");
+    await refreshGameMembers();
+  });
+
+  assignRolesBtn.addEventListener("click", async () => {
+    clearMsg();
+    if (!state.gameId) return;
+    setState("役職割り当て中（role_assign）...");
+    const r = await toJson(await API.assignRoles(state.gameId));
+    if (!r.ok) { setState("エラー"); err(`role_assign失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+    setState("役職割り当てOK（URL配布）");
+    await refreshGameMembers();
+  });
+
+  (async function boot(){
+    clearMsg();
+    render();
+
+    if (state.roomId) {
+      setState("再開（参加URLを配布）");
+      await pullRoomNameIfPossible(state.roomId);
+      await refreshRoster();
+    } else {
+      setState("未開始");
+    }
+
+    if (state.gameId) await refreshGameMembers();
+  })();
+</script>
+</body>
+</html>

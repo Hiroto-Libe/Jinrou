@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>朝フェーズ - 夜明け結果</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; background:#f5f5f5; }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    .box { background:#fff; border:1px solid #ddd; border-radius:12px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+    button { padding:10px 14px; border-radius:999px; border:none; font-size:1rem; }
+    .primary { background:#0066cc; color:#fff; }
+    .ghost { background:#eee; color:#333; }
+    .status { margin-top:8px; color:#444; }
+    .result { margin-top:12px; white-space:pre-wrap; font-size:1rem; }
+    .success { color:#006400; }
+    .error { color:#b00020; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; font-size:.82rem; color:#333; }
+    .small { font-size:.88rem; color:#666; }
+  </style>
+</head>
+<body>
+  <h1>朝フェーズ：夜明け結果</h1>
+
+  <div class="box">
+    <div class="small">
+      この画面は「夜明け処理（襲撃の反映）」を実行し、結果を表示します。<br>
+      司会（ホスト）が操作してください。
+    </div>
+
+    <div class="status" id="status">読み込み中...</div>
+
+    <div class="row">
+      <button class="primary" id="resolve">夜明け処理を実行</button>
+      <button class="ghost" id="to-day">昼へ進む</button>
+      <button class="ghost" id="refresh">状態を更新</button>
+    </div>
+
+    <div class="result" id="result"></div>
+  </div>
+
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const gameId = qs.get("game_id");
+    const playerId = qs.get("player_id");
+
+    const statusEl = document.getElementById("status");
+    const resultEl = document.getElementById("result");
+
+    function jump(path) {
+      location.href = `/frontend/${path}?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
+    }
+
+    async function fetchGame() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
+      if (!res.ok) throw new Error(`game取得失敗(${res.status})`);
+      return await res.json();
+    }
+
+    async function sync() {
+      if (!gameId || !playerId) {
+        statusEl.textContent = "game_id / player_id がURLにありません。";
+        return;
+      }
+      try {
+        const g = await fetchGame();
+        const st = String(g.status || "").toUpperCase();
+        statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span>`;
+
+        // もうDAYなら昼へ
+        if (st === "DAY_DISCUSSION") {
+          resultEl.innerHTML += `<div class="success">すでに昼（DAY_DISCUSSION）に進んでいます。</div>`;
+        }
+      } catch (e) {
+        console.error(e);
+        statusEl.textContent = "状態取得に失敗しました。";
+      }
+    }
+
+    async function resolveNight() {
+      resultEl.textContent = "";
+      try {
+        const g = await fetchGame();
+        const st = String(g.status || "").toUpperCase();
+        if (st !== "NIGHT") {
+          resultEl.innerHTML = `<div class="error">NIGHTではありません（現在：${st}）。夜明け処理は実行できません。</div>`;
+          return;
+        }
+
+        const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/resolve_night_simple`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          resultEl.innerHTML = `<div class="error">夜明け処理に失敗しました (${res.status}): ${JSON.stringify(data)}</div>`;
+          return;
+        }
+
+        // data の形：killed_member_id / victim / guarded_success / status / game_result など
+        const guarded = data.guarded_success ? "🛡️ 護衛成功（襲撃失敗）" : "🐺 襲撃が通った";
+        const victimName = data.victim?.display_name || data.victim?.name || null;
+
+        let msg = `${guarded}\n`;
+        if (victimName) msg += `今朝の犠牲者：${victimName}\n`;
+        else msg += `今朝の犠牲者：なし\n`;
+
+        if (data.status) msg += `次の状態：${data.status}\n`;
+        if (data.game_result?.result && data.game_result.result !== "ONGOING") {
+          msg += `🏁 ゲーム結果：${data.game_result.result}\n`;
+        }
+
+        resultEl.innerHTML = `<div class="success">${msg}</div>`;
+
+        // 状態がDAY_DISCUSSIONに進んだら昼へ
+        await sync();
+      } catch (e) {
+        console.error(e);
+        resultEl.innerHTML = `<div class="error">${String(e)}</div>`;
+      }
+    }
+
+    document.getElementById("resolve").addEventListener("click", resolveNight);
+    document.getElementById("to-day").addEventListener("click", () => jump("day.html"));
+    document.getElementById("refresh").addEventListener("click", sync);
+
+    sync();
+  </script>
+</body>
+</html>

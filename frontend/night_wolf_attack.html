@@ -387,6 +387,12 @@
       const aliveCountEl = document.getElementById("alive-count");
 
       const params = new URLSearchParams(window.location.search);
+
+      // ★追加：game_id / player_id を取得して勝敗チェック
+      const game_id = params.get("game_id");
+      const player_id = params.get("player_id");
+      setupAutoResultRedirect(game_id, player_id);
+
       const nightNo = params.get("night") ?? "1";
       phaseTitle.textContent = `Night ${nightNo} 人狼の襲撃フェーズ`;
 

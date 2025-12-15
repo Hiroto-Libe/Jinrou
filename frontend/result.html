@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>勝敗結果</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; background:#f5f5f5; }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    .box { background:#fff; border:1px solid #ddd; border-radius:12px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,.04); margin-bottom:12px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; font-size:.82rem; color:#333; }
+    .big { font-size: 1.6rem; font-weight: 800; margin: 6px 0; }
+    .muted { color:#666; font-size:.9rem; }
+    .success { color:#006400; }
+    .danger { color:#b00020; }
+
+    button { padding:10px 14px; border-radius:999px; border:none; font-size:1rem; cursor:pointer; }
+    .primary { background:#0066cc; color:#fff; }
+    .ghost { background:#eee; color:#333; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+
+    table { width:100%; border-collapse:collapse; margin-top:8px; }
+    th, td { border-bottom:1px solid #eee; padding:8px; text-align:left; font-size:.95rem; }
+    th { color:#666; font-weight:600; }
+    .tag { font-size:.78rem; color:#555; background:#f3f4f6; padding:2px 6px; border-radius:999px; }
+    .dead { opacity:.55; }
+    .log { white-space:pre-wrap; font-size:.92rem; }
+
+    .toggle {
+      display:flex; align-items:center; gap:10px;
+      padding:8px 10px; border:1px solid #eee; border-radius:12px;
+      background:#fafafa;
+    }
+    .toggle label { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
+    .toggle input { transform: scale(1.2); }
+    .warn { color:#b00020; font-size:.85rem; }
+    .hint { color:#666; font-size:.85rem; margin-top:6px; }
+
+    .host-banner {
+      position: fixed;
+      left: 50%;
+      bottom: 14px;
+      transform: translateX(-50%);
+      width: min(720px, calc(100% - 24px));
+      background: rgba(17, 24, 39, 0.95);
+      color: #f9fafb;
+      border-radius: 16px;
+      padding: 12px 12px;
+      box-shadow: 0 18px 40px rgba(0,0,0,.35);
+      display: none;
+      z-index: 9999;
+    }
+    .host-banner .title { font-weight: 800; margin-bottom: 2px; }
+    .host-banner .desc { font-size: .9rem; opacity: .9; }
+    .host-banner .actions { margin-top: 10px; display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; }
+    .host-banner .btn {
+      padding: 10px 14px; border-radius: 999px; border: none; cursor:pointer; font-size: 1rem;
+    }
+    .host-banner .btn.primary { background:#22c55e; color:#052e16; font-weight:800; }
+    .host-banner .btn.ghost { background:#374151; color:#f9fafb; }
+
+    /* ★追加：公開中の赤帯 */
+    .reveal-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      padding: 10px 12px;
+      background: rgba(176, 0, 32, 0.96);
+      color: #fff;
+      font-weight: 900;
+      letter-spacing: .06em;
+      text-align: center;
+      z-index: 10000;
+      display: none;
+      box-shadow: 0 10px 24px rgba(0,0,0,.25);
+    }
+    /* 赤帯ぶんの余白（表示時だけ付与） */
+    body.reveal-on { padding-top: 46px; }
+    /* ★追加：役職公開中はスクロール固定 */
+    body.no-scroll {
+    overflow: hidden;
+    touch-action: none;   /* スマホ対策 */
+    }
+
+  </style>
+</head>
+<body>
+  <!-- ★追加：公開中の赤帯 -->
+  <div class="reveal-bar" id="revealBar">⚠ 役職公開中（タップでOFF）</div>
+
+  <h1>勝敗結果</h1>
+
+  <div class="box">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <div class="muted">ゲーム状態：<span class="pill" id="game-status">...</span></div>
+        <div class="muted">判定：<span class="pill" id="judge-result">...</span></div>
+      </div>
+      <div class="row">
+        <button class="ghost" id="refresh">更新</button>
+        <button class="ghost" id="to-role">役職確認へ</button>
+        <button class="primary" id="to-day">昼へ</button>
+        <button class="primary" id="to-night">夜へ</button>
+      </div>
+    </div>
+
+    <div class="big" id="headline">読み込み中...</div>
+    <div class="muted" id="reason"></div>
+
+    <div class="row" style="margin-top:10px; justify-content:space-between;">
+      <div class="toggle">
+        <label>
+          <input type="checkbox" id="reveal-toggle" />
+          <span>役職を公開する（司会用）</span>
+        </label>
+      </div>
+      <div class="warn">※ 周囲の人に見せる直前にON</div>
+    </div>
+    <div class="hint" id="reveal-hint">決着後にのみ有効になります。</div>
+  </div>
+
+  <div class="box">
+    <div class="row" style="justify-content:space-between">
+      <div style="font-weight:700;">生存状況</div>
+      <div class="row">
+        <span class="tag" id="count-wolf">WOLF: -</span>
+        <span class="tag" id="count-village">VILLAGE: -</span>
+        <span class="tag" id="count-all">ALL: -</span>
+      </div>
+    </div>
+
+    <div id="members-area"></div>
+  </div>
+
+  <div class="box">
+    <div style="font-weight:700;">メモ</div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="host-banner" id="hostBanner">
+    <div class="title">🎉 決着しました（司会用）</div>
+    <div class="desc">このまま役職を公開しますか？（公開は3秒後に自動でOFFに戻ります）</div>
+    <div class="actions">
+      <button class="btn ghost" id="bannerLater">あとで</button>
+      <button class="btn primary" id="bannerReveal">公開する（ON）</button>
+    </div>
+  </div>
+
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const gameId = qs.get("game_id");
+    const playerId = qs.get("player_id");
+
+    const gameStatusEl = document.getElementById("game-status");
+    const judgeResultEl = document.getElementById("judge-result");
+    const headlineEl = document.getElementById("headline");
+    const reasonEl = document.getElementById("reason");
+    const membersArea = document.getElementById("members-area");
+    const logEl = document.getElementById("log");
+
+    const wolfCntEl = document.getElementById("count-wolf");
+    const villageCntEl = document.getElementById("count-village");
+    const allCntEl = document.getElementById("count-all");
+
+    const btnToDay = document.getElementById("to-day");
+    const btnToNight = document.getElementById("to-night");
+
+    const revealToggle = document.getElementById("reveal-toggle");
+    const revealHint = document.getElementById("reveal-hint");
+
+    const revealBar = document.getElementById("revealBar");
+
+    const hostBanner = document.getElementById("hostBanner");
+    const bannerReveal = document.getElementById("bannerReveal");
+    const bannerLater = document.getElementById("bannerLater");
+
+    const REVEAL_KEY = "jinrou_reveal_roles";
+    const BANNER_KEY = "jinrou_reveal_banner_shown";
+    revealToggle.checked = (localStorage.getItem(REVEAL_KEY) === "1");
+
+    // ★追加：自動OFFタイマー
+    let autoOffTimer = null;
+
+    function log(msg) {
+      const div = document.createElement("div");
+      div.textContent = msg;
+      logEl.appendChild(div);
+    }
+
+    function jump(path) {
+      location.href = `/frontend/${path}?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
+    }
+
+    async function fetchJson(url) {
+      const res = await fetch(url);
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, status: res.status, data };
+    }
+
+    function normalizeResult(r) {
+      return String(r || "").toUpperCase();
+    }
+
+    function isFinished(jr) {
+      return jr === "VILLAGE_WIN" || jr === "WOLF_WIN";
+    }
+
+    function updateRevealBar() {
+      const on = !!revealToggle.checked;
+      revealBar.style.display = on ? "block" : "none";
+      document.body.classList.toggle("reveal-on", on);
+    }
+
+    function applyRevealGuard(jr) {
+      const finished = isFinished(jr);
+
+      if (!finished) {
+        if (revealToggle.checked) {
+          revealToggle.checked = false;
+          localStorage.setItem(REVEAL_KEY, "0");
+          updateRevealBar();
+          updateScrollLock(false); // ★追加：強制OFF時もスクロール解除
+        }
+        revealToggle.disabled = true;
+        revealHint.textContent = "決着後にのみ有効になります。";
+      } else {
+        revealToggle.disabled = false;
+        revealHint.textContent = "司会が全員に見せる直前だけONにしてください。";
+      }
+    }
+
+    function maybeShowHostBanner(prevJr, currentJr) {
+      if (sessionStorage.getItem(BANNER_KEY) === "1") return;
+      if (!isFinished(currentJr)) return;
+      if (isFinished(prevJr)) return;
+      hostBanner.style.display = "block";
+      sessionStorage.setItem(BANNER_KEY, "1");
+    }
+
+    function hideHostBanner() {
+      hostBanner.style.display = "none";
+    }
+
+    function clearAutoOffTimer() {
+      if (autoOffTimer) {
+        clearTimeout(autoOffTimer);
+        autoOffTimer = null;
+      }
+    }
+
+    function setReveal(on) {
+      clearAutoOffTimer();
+
+      revealToggle.checked = !!on;
+      localStorage.setItem(REVEAL_KEY, on ? "1" : "0");
+      updateRevealBar();
+      updateScrollLock(on); // ★追加：公開中はスクロール固定
+
+      if (lastMembers) renderMembers(lastMembers, lastJudge);
+      log(on ? "役職公開：ON（司会用）" : "役職公開：OFF");
+
+      if (on) {
+        autoOffTimer = setTimeout(() => {
+          if (!revealToggle.checked) return;
+          revealToggle.checked = false;
+          localStorage.setItem(REVEAL_KEY, "0");
+          updateRevealBar();
+          if (lastMembers) renderMembers(lastMembers, lastJudge);
+          log("役職公開：自動でOFFに戻しました（事故防止）");
+        }, 3000);
+      }
+    }
+
+    // ★追加：スクロール固定のON/OFF
+    function updateScrollLock(on) {
+    document.body.classList.toggle("no-scroll", on);
+    }
+
+    function renderHeadline(judge, game) {
+      const jr = normalizeResult(judge?.result);
+      const gs = String(game?.status || "").toUpperCase();
+
+      judgeResultEl.textContent = jr || "-";
+      gameStatusEl.textContent = gs || "-";
+
+      if (jr === "VILLAGE_WIN") {
+        headlineEl.innerHTML = `🏁 <span class="success">村人陣営の勝利</span>`;
+      } else if (jr === "WOLF_WIN") {
+        headlineEl.innerHTML = `🏁 <span class="danger">人狼陣営の勝利</span>`;
+      } else if (jr === "ONGOING") {
+        headlineEl.textContent = "進行中（まだ決着していません）";
+      } else {
+        headlineEl.textContent = "判定不明";
+      }
+
+      reasonEl.textContent = judge?.reason
+        ? `理由：${judge.reason}`
+        : `（game.status: ${gs} / judge: ${jr}）`;
+
+      const finished = isFinished(jr);
+      btnToDay.disabled = finished;
+      btnToNight.disabled = finished;
+
+      applyRevealGuard(jr);
+      return jr;
+    }
+
+    function renderMembers(members, judge) {
+      if (!Array.isArray(members)) {
+        membersArea.textContent = "メンバー情報を取得できませんでした。";
+        return;
+      }
+
+      const wolfAlive = judge?.wolf_alive ?? null;
+      const villageAlive = judge?.village_alive ?? null;
+
+      if (wolfAlive != null) wolfCntEl.textContent = `WOLF: ${wolfAlive}`;
+      if (villageAlive != null) villageCntEl.textContent = `VILLAGE: ${villageAlive}`;
+      allCntEl.textContent = `ALL: ${members.length}`;
+
+      const reveal = revealToggle.checked;
+
+      const sorted = members.slice().sort((a,b) => {
+        const aa = (a.alive !== false);
+        const bb = (b.alive !== false);
+        if (aa === bb) return (a.order_no||999) - (b.order_no||999);
+        return aa ? -1 : 1;
+      });
+
+      const rows = sorted.map(m => {
+        const alive = (m.alive !== false);
+        const name = m.display_name || m.name || m.id;
+
+        const team = reveal ? (m.team || "-") : "???";
+        const role = reveal ? (m.role_type || "-") : "???";
+
+        return `
+          <tr class="${alive ? "" : "dead"}">
+            <td>${name}</td>
+            <td>${alive ? "生存" : "死亡"}</td>
+            <td>${team}</td>
+            <td>${role}</td>
+          </tr>
+        `;
+      }).join("");
+
+      membersArea.innerHTML = `
+        <table>
+          <thead>
+            <tr><th>名前</th><th>状態</th><th>陣営</th><th>役職</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    let lastGame = null;
+    let lastJudge = null;
+    let lastMembers = null;
+    let prevJudgeResult = "";
+
+    async function sync() {
+      logEl.textContent = "";
+
+      if (!gameId || !playerId) {
+        log("URLに game_id / player_id がありません。");
+        return;
+      }
+
+      const gameRes = await fetchJson(`/api/games/${encodeURIComponent(gameId)}`);
+      if (!gameRes.ok) {
+        log(`game取得失敗(${gameRes.status}): ${JSON.stringify(gameRes.data)}`);
+        return;
+      }
+
+      const judgeRes = await fetchJson(`/api/games/${encodeURIComponent(gameId)}/judge`);
+      if (!judgeRes.ok) {
+        log(`judge取得失敗(${judgeRes.status}): ${JSON.stringify(judgeRes.data)}`);
+      }
+
+      const memRes = await fetchJson(`/api/games/${encodeURIComponent(gameId)}/members`);
+      if (!memRes.ok) {
+        log(`members取得失敗(${memRes.status}): ${JSON.stringify(memRes.data)}`);
+      }
+
+      lastGame = gameRes.data;
+      lastJudge = judgeRes.data;
+      lastMembers = memRes.data;
+
+      const currentJr = renderHeadline(lastJudge, lastGame);
+      renderMembers(lastMembers, lastJudge);
+
+      maybeShowHostBanner(prevJudgeResult, currentJr);
+      prevJudgeResult = currentJr;
+
+      updateRevealBar(); // ★起動直後/更新時の反映
+
+      if (isFinished(currentJr)) {
+        log("決着済みです。「昼へ」「夜へ」は無効化されています。必要なら役職公開トグルをONにしてください。");
+      } else {
+        log("進行中です。決着後に役職公開が可能になります。");
+      }
+    }
+
+    // トグル操作（決着済みの時のみON可）
+    revealToggle.addEventListener("change", () => {
+      const jr = normalizeResult(lastJudge?.result);
+      if (!isFinished(jr)) {
+        revealToggle.checked = false;
+        localStorage.setItem(REVEAL_KEY, "0");
+        updateRevealBar();
+        log("まだ決着していないため、役職公開はできません。");
+        return;
+      }
+      setReveal(revealToggle.checked);
+    });
+
+    // バナー操作
+    bannerReveal.addEventListener("click", () => {
+      setReveal(true);
+      hideHostBanner();
+    });
+    bannerLater.addEventListener("click", () => {
+      hideHostBanner();
+      log("必要になったら「役職を公開する（司会用）」をONにしてください。");
+    });
+
+    document.getElementById("refresh").addEventListener("click", sync);
+    document.getElementById("to-role").addEventListener("click", () => jump("role_confirm.html"));
+    btnToDay.addEventListener("click", () => jump("day.html"));
+    btnToNight.addEventListener("click", () => jump("role_confirm.html"));
+
+    setInterval(sync, 3000);
+    sync();
+
+    // ★追加：赤帯タップで即OFF（ワンタップ終了）
+    revealBar.addEventListener("click", () => {
+    if (!revealToggle.checked) return; // すでにOFFなら何もしない
+    setReveal(false);
+    log("役職公開：赤帯タップでOFFにしました");
+    });
+
+  </script>
+</body>
+</html>

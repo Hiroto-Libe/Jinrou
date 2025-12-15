@@ -42,6 +42,7 @@ from ...schemas.knight import (
 )
 from ...schemas.medium import MediumInspectOut  # ★ 追加
 from ...schemas.game_member import GameMemberMe
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/games", tags=["games"])
 
@@ -1140,6 +1141,47 @@ def seer_inspect(
 
     return SeerInspectOut.model_validate(inspect, from_attributes=True)
 
+class SeerInspectStatusOut(BaseModel):
+    done: bool
+    night_no: int
+    target_member_id: str | None = None
+
+
+@router.get(
+    "/{game_id}/seer/{seer_member_id}/inspect/status",
+    response_model=SeerInspectStatusOut,
+)
+def seer_inspect_status(
+    game_id: str,
+    seer_member_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    seer = db.get(GameMember, seer_member_id)
+    if not seer or seer.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Seer member not found")
+
+    night_no = game.curr_night  # あなたの実装に合わせて（curr_nightでOKならそのまま）
+
+    existing = (
+        db.query(SeerInspect)
+        .filter(
+            SeerInspect.game_id == game_id,
+            SeerInspect.night_no == night_no,
+            SeerInspect.seer_member_id == seer_member_id,
+        )
+        .one_or_none()
+    )
+
+    return SeerInspectStatusOut(
+        done=existing is not None,
+        night_no=night_no,
+        target_member_id=(existing.target_member_id if existing else None),
+    )
+
 
 @router.post(
     "/{game_id}/knight/{knight_member_id}/guard",
@@ -1236,6 +1278,48 @@ def knight_guard(
     db.refresh(guard)
 
     return KnightGuardOut.model_validate(guard, from_attributes=True)
+
+class KnightGuardStatusOut(BaseModel):
+    done: bool
+    night_no: int
+    target_member_id: str | None = None
+
+
+@router.get(
+    "/{game_id}/knight/{knight_member_id}/guard/status",
+    response_model=KnightGuardStatusOut,
+)
+def knight_guard_status(
+    game_id: str,
+    knight_member_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    # 騎士本人の最低限チェック（※UIのためなので軽めでOK。厳密にしたいならrole/aliveも確認）
+    knight = db.get(GameMember, knight_member_id)
+    if not knight or knight.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Knight member not found")
+
+    night_no = game.curr_night
+
+    existing = (
+        db.query(KnightGuard)
+        .filter(
+            KnightGuard.game_id == game_id,
+            KnightGuard.night_no == night_no,
+            KnightGuard.knight_member_id == knight_member_id,
+        )
+        .one_or_none()
+    )
+
+    return KnightGuardStatusOut(
+        done=existing is not None,
+        night_no=night_no,
+        target_member_id=(existing.target_member_id if existing else None),
+    )
 
 
 @router.post(

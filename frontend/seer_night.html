@@ -99,6 +99,14 @@
   <script src="/frontend/js/night_common.js"></script>
   <script>
     (function () {
+
+      const params = new URLSearchParams(location.search);
+      const game_id = params.get("game_id");
+      const player_id = params.get("player_id");
+
+      // ★追加：勝敗確定なら result.html へ
+      setupAutoResultRedirect(game_id, player_id);
+
       const meNameEl = document.getElementById("me-name");
 
       JinrouNight.initNightRolePage({
@@ -109,20 +117,42 @@
           buttonId: "inspect-btn",
           resultId: "result",
         },
+
+        // ✅ 追加：占い済みなら最初からボタン非表示＋ロック
+        // （要：GET /api/games/{game_id}/seer/{seer_member_id}/inspect/status）
+        checkAlreadyDone: async ({ gameId, me }) => {
+          const url =
+            `/api/games/${encodeURIComponent(gameId)}` +
+            `/seer/${encodeURIComponent(me.player_id)}/inspect/status`;
+
+          const res = await fetch(url);
+          if (!res.ok) return { done: false };
+
+          const data = await res.json();
+          if (!data.done) return { done: false };
+
+          return {
+            done: true,
+            kind: "seer_inspect",
+            target_member_id: data.target_member_id || null,
+            message: "今夜の占いはすでに完了しています。",
+          };
+        },
+
         // ★ seer_member_id は GameMember.id (= /me の player_id)
         //   /api/games/{game_id}/seer/{seer_member_id}/inspect
         buildEndpoint: (gameId, me) => {
           if (!me || !me.player_id) {
             throw new Error("占い師情報の取得に失敗しました（player_id 不正）");
           }
-          return `/api/games/${encodeURIComponent(
-            gameId
-          )}/seer/${encodeURIComponent(me.player_id)}/inspect`;
+          return `/api/games/${encodeURIComponent(gameId)}/seer/${encodeURIComponent(me.player_id)}/inspect`;
         },
+
         // ★ Body は target_member_id だけでOK
-        buildRequestBody: ({ me, targetMember }) => ({
+        buildRequestBody: ({ targetMember }) => ({
           target_member_id: targetMember.id,
         }),
+
         buildSuccessMessage: ({ data, targetMember }) => {
           const isWolf = data.is_wolf;
           const name =
@@ -134,6 +164,7 @@
             ? `🔴 ${name} さんは「人狼」です。`
             : `🔵 ${name} さんは「人狼ではありません」。`;
         },
+
         texts: {
           loadingMe: "占い師の情報を読み込み中...",
           loadingGame: "プレイヤー一覧を取得中...",
@@ -143,6 +174,7 @@
           doneStatus:
             "今夜の占いは完了しました。他の人のターンを待ってください。",
         },
+
         // 占い師用のメンバー表示
         renderMembers: ({
           members,
@@ -197,6 +229,7 @@
             card.appendChild(nameDiv);
             card.appendChild(subDiv);
 
+            // actionDone=true（占い済み）なら、最初から全カード選択不可
             if (!isAlive || isSelf || actionDone || roleMismatch) {
               card.style.pointerEvents = "none";
             } else {

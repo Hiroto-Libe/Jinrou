@@ -29,15 +29,15 @@
     return await res.json();
   }
 
-  async function fetchGame(gameId) {
-    const url = `${API_BASE}/games/${encodeURIComponent(gameId)}`;
-    const res = await fetch(url);
+  async function fetchMembers(gameId) {
+    const res = await fetch(
+      `${API_BASE}/games/${encodeURIComponent(gameId)}/members`
+    );
     if (!res.ok)
-      throw new Error(`ゲーム情報の取得に失敗しました (${res.status})`);
+      throw new Error(`プレイヤー一覧の取得に失敗しました (${res.status})`);
     return await res.json();
   }
 
-  // デフォルトのメンバー描画（必要なら各画面側で renderMembers を上書き）
   function defaultRenderMembers({
     members,
     me,
@@ -86,19 +86,6 @@
     });
   }
 
-  /**
-   * 夜フェーズ共通初期化
-   *
-   * config:
-   *  - expectedRole: 'seer' | 'knight' | 'wolf' など
-   *  - elements: { statusId, membersId, buttonId, resultId }
-   *  - buildEndpoint: (gameId, me) => string
-   *  - buildRequestBody: ({ me, targetMember }) => any
-   *  - buildSuccessMessage: ({ data, targetMember }) => string
-   *  - texts: { loadingMe, loadingGame, selectPrompt, roleMismatch, doneStatus }
-   *  - renderMembers (任意)
-   *       ({ members, me, containerEl, expectedRole, actionDone, onSelect }) => void
-   */
   async function initNightRolePage(config) {
     const params = getQueryParams();
     const gameId = params.get("game_id");
@@ -110,9 +97,7 @@
     const resultEl = document.getElementById(config.elements.resultId);
 
     if (!gameId || !playerId) {
-      alert(
-        "game_id または player_id が指定されていません。URL を確認してください。"
-      );
+      alert("game_id または player_id が指定されていません。URL を確認してください。");
       return;
     }
 
@@ -132,19 +117,32 @@
         .forEach((el) => (el.style.pointerEvents = "none"));
     }
 
+    function markDone(message) {
+      if (message) appendLog(resultEl, message, "success");
+      safeSetStatus(config.texts.doneStatus || "今夜の行動は完了しました。");
+      actionDone = true;
+      disableAllCards();
+      if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.style.display = "none";
+      }
+    }
+
+    function findNameById(id) {
+      if (!id || !Array.isArray(members)) return null;
+      const m = members.find((x) => x.id === id);
+      return m ? (m.display_name || m.name || null) : null;
+    }
+
     async function sendAction() {
       if (!selectedTarget || !me) return;
 
-      buttonEl.disabled = true;
+      if (buttonEl) buttonEl.disabled = true;
       safeSetStatus("送信中です...");
 
       try {
-        // ★ ここが重要：me も渡す
         const endpoint = config.buildEndpoint(gameId, me);
-        const body = config.buildRequestBody({
-          me,
-          targetMember: selectedTarget,
-        });
+        const body = config.buildRequestBody({ me, targetMember: selectedTarget });
 
         const res = await fetch(endpoint, {
           method: "POST",
@@ -153,102 +151,136 @@
         });
 
         if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(
-            `アクションに失敗しました (${res.status}): ${errText}`
-          );
+          let errJson = null;
+          let detail = "";
+
+          try {
+            errJson = await res.json();
+            detail = errJson?.detail ?? "";
+          } catch (_) {}
+
+          // “済み系” は「完了扱い」
+          if (res.status === 400 && detail === "Seer already inspected someone this night") {
+            markDone("今夜の占いはすでに完了しています。");
+            return;
+          }
+          if (res.status === 400 && detail === "Knight already guarded someone this night") {
+            markDone("今夜の護衛はすでに完了しています。");
+            return;
+          }
+
+          const raw = errJson ? JSON.stringify(errJson) : await res.text();
+          throw new Error(`アクションに失敗しました (${res.status}): ${raw}`);
         }
 
         const data = await res.json();
-        const msg = config.buildSuccessMessage({
-          data,
-          targetMember: selectedTarget,
-        });
+        const msg = config.buildSuccessMessage({ data, targetMember: selectedTarget });
 
         appendLog(resultEl, msg, "success");
-        safeSetStatus(
-          config.texts.doneStatus || "この夜の行動は完了しました。"
-        );
+        safeSetStatus(config.texts.doneStatus || "この夜の行動は完了しました。");
 
         actionDone = true;
         disableAllCards();
+        if (buttonEl) {
+          buttonEl.disabled = true;
+          buttonEl.style.display = "none";
+        }
       } catch (err) {
         console.error(err);
         appendLog(resultEl, String(err), "error");
-        safeSetStatus(
-          `アクション送信でエラー: ${String(err).replace(/^Error:\s*/, "")}`
-        );
-        buttonEl.disabled = false;
+        safeSetStatus(`アクション送信でエラー: ${String(err).replace(/^Error:\s*/, "")}`);
+        if (buttonEl) buttonEl.disabled = false;
       }
     }
 
     if (buttonEl) {
       buttonEl.addEventListener("click", sendAction);
       buttonEl.disabled = true;
+      buttonEl.style.display = ""; // 初期状態は表示（done判定で非表示にする）
     }
 
-    // 起動時フロー
     try {
       safeSetStatus(config.texts.loadingMe || "プレイヤー情報を読み込み中...");
       me = await fetchMe(gameId, playerId);
 
+      // 役職ミスマッチは最初から操作不可
       if (config.expectedRole && me.role !== config.expectedRole) {
         appendLog(
           resultEl,
-          config.texts.roleMismatch ||
-            "役職が異なるため、この画面からは操作できません。",
+          config.texts.roleMismatch || "役職が異なるため、この画面からは操作できません。",
           "error"
         );
         safeSetStatus("この画面はあなたの役職には対応していません。");
-        if (buttonEl) buttonEl.disabled = true;
         actionDone = true;
+        disableAllCards();
+        if (buttonEl) buttonEl.disabled = true;
+        return;
       }
 
-      safeSetStatus(
-        config.texts.loadingGame || "プレイヤー一覧を読み込み中..."
-      );
-
-      const resMembers = await fetch(
-        `${API_BASE}/games/${encodeURIComponent(gameId)}/members`
-      );
-      if (!resMembers.ok) {
-        throw new Error(
-          `プレイヤー一覧の取得に失敗しました (${resMembers.status})`
-        );
+      // ✅ 事前「済み」チェック（あれば）
+      let doneInfo = null;
+      if (typeof config.checkAlreadyDone === "function") {
+        doneInfo = await config.checkAlreadyDone({ gameId, me });
       }
 
-      members = await resMembers.json();
+      safeSetStatus(config.texts.loadingGame || "プレイヤー一覧を取得中...");
+      members = await fetchMembers(gameId);
 
+      // メンバー描画（done でも描画だけはして、選択不可にする）
       const renderFn = config.renderMembers || defaultRenderMembers;
-
       renderFn({
         members,
         me,
         containerEl: membersEl,
         expectedRole: config.expectedRole,
-        actionDone,
+        actionDone: !!doneInfo?.done, // ← doneなら最初から選択不可
         onSelect: (m) => {
           selectedTarget = m;
-          if (buttonEl) buttonEl.disabled = false;
+          if (buttonEl) {
+            buttonEl.disabled = false;
+            buttonEl.style.display = ""; // 通常時は表示
+          }
         },
       });
 
-      if (!actionDone) {
-        safeSetStatus(
-          config.texts.selectPrompt || "対象を選択してください。"
-        );
+      if (doneInfo?.done) {
+        // target_member_id があれば名前に変換して表示
+        const tid = doneInfo.target_member_id;
+        const tname = findNameById(tid);
+        const msg = tname
+          ? `${doneInfo.message || "今夜の行動はすでに完了しています。"}（対象：${tname}）`
+          : (doneInfo.message || "今夜の行動はすでに完了しています。");
+
+        markDone(msg);
+        return;
       }
+
+      // 通常時
+      safeSetStatus(config.texts.selectPrompt || "対象を選択してください。");
     } catch (err) {
       console.error(err);
       appendLog(resultEl, String(err), "error");
-      safeSetStatus(
-        "画面の初期化に失敗しました。URL やゲーム状態を確認してください。"
-      );
+      safeSetStatus("画面の初期化に失敗しました。URL やゲーム状態を確認してください。");
       if (buttonEl) buttonEl.disabled = true;
     }
   }
 
-  global.JinrouNight = {
-    initNightRolePage,
-  };
+  global.JinrouNight = { initNightRolePage };
 })(window);
+
+// ===== Win/Lose auto redirect =====
+async function redirectIfFinished(game_id, player_id) {
+  const res = await fetch(`/api/games/${game_id}/judge`);
+  if (!res.ok) return; // judge が落ちてもゲーム進行は止めない
+
+  const data = await res.json(); // { result: "ONGOING" | "VILLAGE_WIN" | "WOLF_WIN" }
+  if (data.result && data.result !== "ONGOING") {
+    const qs = new URLSearchParams({ game_id, player_id });
+    location.href = `/frontend/result.html?${qs.toString()}`;
+  }
+}
+
+// ページ読み込み時に呼ぶ用（例外で落ちないように）
+function setupAutoResultRedirect(game_id, player_id) {
+  redirectIfFinished(game_id, player_id).catch(() => {});
+}

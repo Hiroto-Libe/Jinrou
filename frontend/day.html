@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>昼フェーズ - 議論＆投票</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; background:#f5f5f5; }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    .grid { display:grid; grid-template-columns: 1fr; gap:12px; }
+    .box { background:#fff; border:1px solid #ddd; border-radius:12px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .status { margin-top:6px; color:#444; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; font-size:.82rem; color:#333; }
+
+    .members {
+      display:grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap:8px;
+      margin-top:10px;
+    }
+    .member-card{
+      border:1px solid #ccc; border-radius:10px; padding:8px;
+      background:#fff; cursor:pointer; user-select:none;
+      display:flex; flex-direction:column; gap:4px;
+      min-height:72px;
+    }
+    .member-card.dead { opacity:.4; cursor:not-allowed; }
+    .member-card.self { outline:2px dashed #bbb; }
+    .member-card.selected { border-color:#0066cc; box-shadow:0 0 0 2px rgba(0,102,204,.18); }
+    .name { font-weight:600; }
+    .sub { font-size:.78rem; color:#777; }
+
+    button { padding:10px 14px; border-radius:999px; border:none; font-size:1rem; }
+    .primary { background:#0066cc; color:#fff; }
+    .ghost { background:#eee; color:#333; }
+    .danger { background:#b00020; color:#fff; }
+    button:disabled { opacity:.5; }
+
+    .log { margin-top:10px; white-space:pre-wrap; font-size:.92rem; }
+    .error { color:#b00020; }
+    .success { color:#006400; }
+
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { border-bottom:1px solid #eee; padding:8px; text-align:left; font-size:.95rem; }
+    th { color:#666; font-weight:600; }
+  </style>
+</head>
+<body>
+  <h1>昼フェーズ：議論＆投票</h1>
+
+  <div class="grid">
+    <div class="box">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <div>あなた：<strong id="me-name">（読み込み中）</strong></div>
+          <div class="status" id="status">読み込み中...</div>
+        </div>
+        <div class="row">
+          <button class="ghost" id="refresh">更新</button>
+          <button class="ghost" id="to-night">夜（役職画面）へ</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="box">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <div style="font-weight:600;">投票（DAY_DISCUSSION のときのみ）</div>
+          <div class="status" id="vote-status">対象を選んで投票してください。</div>
+        </div>
+        <div class="row">
+          <button class="primary" id="vote-btn" disabled>この人に投票する</button>
+          <button class="ghost" id="tally-btn">集計を見る</button>
+          <button class="danger" id="resolve-day">処刑を確定して夜へ</button>
+        </div>
+      </div>
+
+      <div id="members" class="members"></div>
+      <div id="log" class="log"></div>
+    </div>
+
+    <div class="box">
+      <div style="font-weight:600;">投票集計</div>
+      <div id="tally-area" class="status">まだ集計していません。</div>
+    </div>
+  </div>
+
+  <!-- ★重要：外部JS読み込み（src付きscriptの中身は実行されないので分離する） -->
+  <script src="/frontend/js/night_common.js"></script>
+
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const gameId = qs.get("game_id");
+    const playerId = qs.get("player_id");
+
+    // ★追加：勝敗確定なら result.html へ（初期表示保険）
+    setupAutoResultRedirect(gameId, playerId);
+
+    const statusEl = document.getElementById("status");
+    const meNameEl = document.getElementById("me-name");
+    const voteStatusEl = document.getElementById("vote-status");
+    const membersEl = document.getElementById("members");
+    const logEl = document.getElementById("log");
+    const tallyArea = document.getElementById("tally-area");
+
+    const voteBtn = document.getElementById("vote-btn");
+    const resolveBtn = document.getElementById("resolve-day");
+
+    let me = null;
+    let members = [];
+    let selected = null;
+
+    function jump(path) {
+      location.href = `/frontend/${path}?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
+    }
+
+    function log(msg, type) {
+      const div = document.createElement("div");
+      div.textContent = msg;
+      if (type) div.className = type;
+      logEl.appendChild(div);
+    }
+
+    async function fetchGame() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
+      if (!res.ok) throw new Error(`game取得失敗(${res.status})`);
+      return await res.json();
+    }
+
+    async function fetchMe() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/me?player_id=${encodeURIComponent(playerId)}`);
+      if (!res.ok) throw new Error(`me取得失敗(${res.status})`);
+      return await res.json();
+    }
+
+    async function fetchMembers() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/members`);
+      if (!res.ok) throw new Error(`members取得失敗(${res.status})`);
+      return await res.json();
+    }
+
+    function renderMembers(canVote) {
+      membersEl.innerHTML = "";
+      const selfId = me?.player_id || me?.game_member_id;
+
+      members.forEach(m => {
+        const card = document.createElement("div");
+        card.className = "member-card";
+
+        const alive = (m.alive !== false) && (m.is_alive !== false);
+        const isSelf = selfId && m.id === selfId;
+
+        if (!alive) card.classList.add("dead");
+        if (isSelf) card.classList.add("self");
+
+        const name = m.display_name || m.name || "（名無し）";
+
+        const nameDiv = document.createElement("div");
+        nameDiv.className = "name";
+        nameDiv.textContent = name;
+
+        const subDiv = document.createElement("div");
+        subDiv.className = "sub";
+        if (!alive) subDiv.textContent = "死亡";
+        else if (isSelf) subDiv.textContent = "あなた（自投票は可/不可は運用次第）";
+        else subDiv.textContent = "タップして投票対象に選択";
+
+        card.appendChild(nameDiv);
+        card.appendChild(subDiv);
+
+        // 仕様：死者は投票対象にできない。投票可能状態でなければクリック不可
+        if (!alive || !canVote) {
+          card.style.pointerEvents = "none";
+          card.style.opacity = alive ? 0.85 : 0.4;
+        } else {
+          card.addEventListener("click", () => {
+            membersEl.querySelectorAll(".member-card").forEach(el => el.classList.remove("selected"));
+            card.classList.add("selected");
+            selected = m;
+            voteBtn.disabled = false;
+            voteStatusEl.textContent = `投票先：${name}`;
+          });
+        }
+
+        membersEl.appendChild(card);
+      });
+    }
+
+    async function sync() {
+      logEl.innerHTML = "";
+      tallyArea.textContent = "まだ集計していません。";
+      selected = null;
+      voteBtn.disabled = true;
+
+      if (!gameId || !playerId) {
+        statusEl.textContent = "game_id / player_id がURLにありません。";
+        return;
+      }
+
+      try {
+        const g = await fetchGame();
+        const st = String(g.status || "").toUpperCase();
+        statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span>`;
+
+        // 状態がNIGHTなら夜へ（役職画面へ戻す）
+        if (st === "NIGHT") {
+          voteStatusEl.textContent = "現在は夜です。夜画面へ移動します。";
+          jump("role_confirm.html");
+          return;
+        }
+
+        me = await fetchMe();
+        members = await fetchMembers();
+
+        // 表示名
+        const selfId = me?.player_id || me?.game_member_id;
+        const meMember = members.find(x => x.id === selfId);
+        meNameEl.textContent = meMember?.display_name || meMember?.name || "あなた";
+
+        const canVote = (st === "DAY_DISCUSSION");
+        voteBtn.disabled = !canVote;
+        resolveBtn.disabled = !canVote;
+
+        voteStatusEl.textContent = canVote
+          ? "対象を選んで投票してください。"
+          : `投票できない状態です（現在：${st}）。`;
+
+        renderMembers(canVote);
+      } catch (e) {
+        console.error(e);
+        log(String(e), "error");
+      }
+    }
+
+    async function doVote() {
+      if (!selected || !me) return;
+
+      try {
+        const body = {
+          voter_member_id: me.player_id,        // /me の player_id は GameMember.id
+          target_member_id: selected.id,
+        };
+
+        const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/day_vote`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          log(`投票に失敗しました(${res.status}): ${JSON.stringify(data)}`, "error");
+          return;
+        }
+        await sync();
+        log("投票しました。", "success");
+
+        // ★追加：投票後に勝敗確定してたら結果へ
+        await redirectIfFinished(gameId, playerId);
+      } catch (e) {
+        console.error(e);
+        log(String(e), "error");
+      }
+    }
+
+    async function showTally() {
+      tallyArea.textContent = "集計中...";
+      try {
+        const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/day_tally`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          tallyArea.innerHTML = `<div class="error">集計取得失敗(${res.status}): ${JSON.stringify(data)}</div>`;
+          return;
+        }
+
+        const items = Array.isArray(data.items) ? data.items : [];
+        if (!items.length) {
+          tallyArea.textContent = "まだ票がありません。";
+          return;
+        }
+
+        const idToName = new Map(members.map(m => [m.id, (m.display_name || m.name || m.id)]));
+
+        const rows = items
+          .slice()
+          .sort((a,b) => (b.vote_count||0) - (a.vote_count||0))
+          .map(it => `<tr><td>${idToName.get(it.target_member_id) || it.target_member_id}</td><td>${it.vote_count}</td></tr>`)
+          .join("");
+
+        tallyArea.innerHTML = `
+          <table>
+            <thead><tr><th>対象</th><th>票数</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      } catch (e) {
+        console.error(e);
+        tallyArea.innerHTML = `<div class="error">${String(e)}</div>`;
+      }
+    }
+
+    async function resolveDay() {
+      // 司会運用想定：処刑確定→夜へ
+      try {
+        const g = await fetchGame();
+        const st = String(g.status || "").toUpperCase();
+        if (st !== "DAY_DISCUSSION") {
+          log(`DAY_DISCUSSIONではありません（現在：${st}）。`, "error");
+          return;
+        }
+
+        const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/resolve_day_simple`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          log(`処刑確定に失敗しました(${res.status}): ${JSON.stringify(data)}`, "error");
+          return;
+        }
+
+        log("処刑を確定しました。夜へ移動します。", "success");
+
+        // ★追加：処刑で勝敗確定するので最重要
+        await redirectIfFinished(gameId, playerId);
+
+        // resolve_day_simple が NIGHT に進めるので夜へ
+        jump("role_confirm.html");
+      } catch (e) {
+        console.error(e);
+        log(String(e), "error");
+      }
+    }
+
+    document.getElementById("refresh").addEventListener("click", sync);
+    document.getElementById("to-night").addEventListener("click", () => jump("role_confirm.html"));
+    voteBtn.addEventListener("click", doVote);
+    document.getElementById("tally-btn").addEventListener("click", showTally);
+    resolveBtn.addEventListener("click", resolveDay);
+
+    // 状態変化を追う（夜になったら自動で夜へ）
+    setInterval(sync, 1500);
+    sync();
+  </script>
+</body>
+</html>
