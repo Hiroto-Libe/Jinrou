@@ -14,8 +14,8 @@ class RoomCreate(BaseModel):
 
 class RoomOut(BaseModel):
     id: str
-    name: str
-
+    name: Optional[str] = None
+    current_game_id: Optional[str] = None 
     class Config:
         from_attributes = True
 

@@ -11,9 +11,11 @@ class Room(Base):
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
+
     owner_profile_id = Column(String, ForeignKey("profiles.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
+    # ★追加：現在進行中のゲーム
+    current_game_id = Column(String, nullable=True)
     roster = relationship("RoomRoster", back_populates="room", cascade="all, delete-orphan")
     members = relationship("RoomMember", back_populates="room", cascade="all, delete-orphan")
 

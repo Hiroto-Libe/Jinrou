@@ -78,6 +78,9 @@ def create_game(
     db.add(game)
     db.flush()             # game.id を使うので flush しておく
 
+    room.current_game_id = game.id
+    db.add(room) 
+
     # RoomMember から GameMember を作成
     for i, rm in enumerate(room_members, start=1):
         gm = GameMember(
@@ -95,6 +98,7 @@ def create_game(
 
     db.commit()
     db.refresh(game)
+    db.refresh(room)
     return game
 
 

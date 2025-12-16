@@ -13,7 +13,14 @@
     .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; font-size:.82rem; color:#333; }
     button { padding:10px 14px; border-radius:999px; border:none; font-size:1rem; cursor:pointer; }
     button:disabled { opacity:.45; cursor:not-allowed; }
-    .primary { background:#0066cc; color:#fff; }
+    .primary {
+      background:#2563eb;   /* Tailwind blue-600 相当 */
+      color:#fff;
+      font-weight:600;
+    }
+    .primary:hover {
+      background:#1d4ed8;
+    }
     .ghost { background:#eee; color:#333; }
     .err { color:#b00020; white-space:pre-wrap; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.9rem; }
@@ -35,7 +42,7 @@
     <div class="small">例）家族人狼 / 12月忘年会 / 友だち会</div>
     <div class="row" style="margin-top:8px;">
       <input id="roomNameInput" placeholder="（未入力でもOK）" />
-      <button class="ghost" id="clearBtn">この画面の状態を消す</button>
+      <button class="primary" id="clearBtn">この画面の状態を消す</button>
       <button class="primary" id="createRoomBtn">Roomを作成</button>
     </div>
     <div class="hr"></div>
@@ -63,8 +70,8 @@
         <div class="small">人数が揃ったら「rosterを確定」→ members へ変換（bulk_from_roster）</div>
       </div>
       <div class="row">
-        <button class="ghost" id="refreshRosterBtn" disabled>roster更新</button>
-        <button class="primary" id="bulkBtn" disabled>rosterを確定（bulk_from_roster）</button>
+        <button class="primary" id="refreshRosterBtn">roster更新</button>
+        <button class="ghost" id="bulkBtn" disabled>rosterを確定（bulk_from_roster）</button>
       </div>
     </div>
     <div id="rosterArea"></div>
@@ -194,8 +201,14 @@
     const hasRoom = !!state.roomId;
     const hasGame = !!state.gameId;
 
-    refreshRosterBtn.disabled = !hasRoom;
-    bulkBtn.disabled = !hasRoom;
+    // refreshRosterBtn.disabled = !hasRoom;
+    // refreshRosterBtn.disabled = !hasRoom;
+
+    const rosterCount = (state.roster || []).length;
+    const canBulk = hasRoom && rosterCount >= 6;
+
+    bulkBtn.disabled = !canBulk;
+    bulkBtn.className = canBulk ? "primary" : "ghost";
 
     createGameBtn.disabled = !hasRoom;
     startGameBtn.disabled = !hasGame;
@@ -212,8 +225,8 @@
             <div class="small">※ 参加者にこのURLを送ってください（LINE/QR/口頭など）</div>
           </div>
           <div class="row">
-            <button class="ghost" onclick="copyText('${escapeJs(joinUrl)}')">コピー</button>
-            <button class="primary" onclick="openTab('${escapeJs(joinUrl)}')">開く</button>
+            <button class="primary" onclick="copyText('${escapeJs(joinUrl)}')">コピー</button>
+            <button class="ghost" onclick="openTab('${escapeJs(joinUrl)}')">開く</button>
           </div>
         </div>
       `;
@@ -253,8 +266,8 @@
             <div class="row" style="justify-content:space-between;">
               <div><b>${escapeHtml(name)}</b> <span class="pill">${escapeHtml(role)}</span></div>
               <div class="row">
-                <button class="ghost" onclick="copyText('${escapeJs(url)}')">コピー</button>
-                <button class="primary" onclick="openTab('${escapeJs(url)}')">開く</button>
+                <button class="primary" onclick="copyText('${escapeJs(url)}')">コピー</button>
+                <button class="ghost" onclick="openTab('${escapeJs(url)}')">開く</button>
               </div>
             </div>
             <div class="urlbox">${escapeHtml(url)}</div>

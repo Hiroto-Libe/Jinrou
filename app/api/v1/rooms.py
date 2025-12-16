@@ -7,6 +7,7 @@ import uuid
 from ...api.deps import get_db_dep
 from ...models.room import Room, RoomRoster, RoomMember
 from ...models.profile import Profile
+from app.schemas.room import RoomOut 
 from ...schemas.room import (
     RoomCreate,
     RoomOut,
@@ -187,8 +188,6 @@ def create_members_from_roster(
 
     return [RoomMemberListItem.model_validate(m) for m in members]
 
-
-
 @router.get("/{room_id}/members", response_model=list[RoomMemberListItem])
 def list_room_members(
     room_id: str,
@@ -205,3 +204,10 @@ def list_room_members(
         .all()
     )
     return [RoomMemberListItem.model_validate(m) for m in members]
+
+@router.get("/{room_id}", response_model=RoomOut)
+def get_room(room_id: str, db: Session = Depends(get_db_dep)):
+    room = db.get(Room, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="room not found")
+    return room

@@ -16,6 +16,8 @@
     button:disabled { opacity:.45; cursor:not-allowed; }
     .primary { background:#0066cc; color:#fff; }
     .ghost { background:#eee; color:#333; }
+    .danger { background:#b00020; color:#fff; }
+    .ok { color:#065f46; font-weight:700; }
     .err { color:#b00020; white-space:pre-wrap; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.9rem; }
     .list { margin:8px 0 0; padding-left: 18px; }
@@ -162,17 +164,6 @@
     location.href = `/frontend/role_confirm.html?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
   }
 
-  function normalizeRoomsPayload(data){
-    if (Array.isArray(data)) return data;
-    if (Array.isArray(data.items)) return data.items;
-    if (Array.isArray(data.rooms)) return data.rooms;
-    return [];
-  }
-
-  function pickGameIdFromRoom(roomObj){
-    return roomObj.game_id || roomObj.gameId || roomObj.current_game_id || roomObj.currentGameId || "";
-  }
-
   function findRoomMemberIdByName(members, name){
     if (!Array.isArray(members) || !name) return "";
     const hit = members.find(m => (m.display_name || m.name) === name);
@@ -233,20 +224,19 @@
     return id;
   }
 
+  // /api/rooms/{room_id} の current_game_id を見る
   async function detectGameId(){
     if (state.gameId) return state.gameId;
 
-    const r = await toJson(await API.listRooms());
-    if (r.ok) {
-      const rooms = normalizeRoomsPayload(r.data);
-      const room = rooms.find(x => (x.id || x.room_id) === state.roomId);
-      const gid = room ? pickGameIdFromRoom(room) : "";
-      if (gid) {
-        state.gameId = gid;
-        localStorage.setItem(LS.gameId, gid);
-        renderMeta();
-        return gid;
-      }
+    const r = await toJson(await API.getRoom(state.roomId));
+    if (!r.ok) return "";
+
+    const gid = r.data.current_game_id || "";
+    if (gid) {
+      state.gameId = gid;
+      localStorage.setItem(LS.gameId, gid);
+      renderMeta();
+      return gid;
     }
     return "";
   }
@@ -299,9 +289,23 @@
     tick();
   }
 
+  // =========================================================
+  // ここが「イベント登録エリア」
+  // =========================================================
+
+  // ★追加：Enter で参加（click を呼ぶだけ）。click の中には入れない。
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.isComposing) return;          // IME変換中の Enter は無視
+    if (e.key === "Enter") joinBtn.click();
+  });
+
   joinBtn.addEventListener("click", async () => {
     clearMsg();
     if (!state.roomId) { err("URLに room_id がありません"); return; }
+
+    // IME入力を確定させる（変換中クリック対策）
+    nameInput.blur();
+    await new Promise(r => setTimeout(r, 0));
 
     const name = nameInput.value.trim();
     if (!name) { err("表示名を入力してください"); return; }
