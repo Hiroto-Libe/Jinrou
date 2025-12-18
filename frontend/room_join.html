@@ -149,6 +149,45 @@
 
   function setStatePill(text){ elState.textContent = text; }
 
+  // =========================================================
+  // IME / 入力の安定化
+  // =========================================================
+  let imeComposing = false;
+  nameInput.addEventListener("compositionstart", () => { imeComposing = true; });
+  nameInput.addEventListener("compositionend",   () => { imeComposing = false; });
+
+  async function waitImeCommitIfNeeded(){
+    if (!imeComposing) return;
+    await new Promise((resolve) => {
+      const h = () => resolve();
+      nameInput.addEventListener("compositionend", h, { once: true });
+    });
+    await new Promise(r => setTimeout(r, 0));
+  }
+
+  async function flushInputValue(){
+    await waitImeCommitIfNeeded();
+    nameInput.blur();
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  }
+
+  // ✅ 重要：ポーリング更新で入力欄を壊さないための安全 setter
+  function safeSetNameInput(nextValue) {
+    // IME変換中は触らない
+    if (imeComposing) return;
+
+    // 入力中（フォーカス中）は触らない
+    if (document.activeElement === nameInput) return;
+
+    // すでにユーザーが入力しているなら触らない
+    if (nameInput.value.trim()) return;
+
+    nameInput.value = nextValue ?? "";
+  }
+
+  // =========================================================
+  // 描画
+  // =========================================================
   function renderMeta(){
     elRoomId.textContent = state.roomId || "（room_idなし）";
     elRoomName.textContent = state.roomName ? state.roomName : "（名称なし）";
@@ -156,7 +195,16 @@
     elGameId.textContent = state.gameId ? state.gameId : "未検出";
     elRoomMember.textContent = state.roomMemberId ? state.roomMemberId : "未確定";
 
-    nameInput.value = state.name || "";
+    // ✅ ここが修正ポイント：常に代入しない（入力を消さない）
+    // 参加済みなら state.name を表示したいが、入力欄は基本触らない。
+    // 未参加 & inputが空のときだけ localStorageのnameを復元する。
+    if (!state.joined) {
+      safeSetNameInput(state.name || "");
+    }
+
+    // 参加済みなら入力欄をロック（任意：事故防止）
+    nameInput.disabled = !!state.joined;
+
     joinBtn.disabled = !state.roomId || state.joined;
   }
 
@@ -179,6 +227,7 @@
     if (!state.roomId) return;
     const r = await toJson(await API.getRoom(state.roomId));
     if (!r.ok) return;
+
     const nm = r.data.name || r.data.room_name || r.data.roomName || "";
     if (nm) {
       state.roomName = nm;
@@ -193,14 +242,17 @@
   async function refreshRoster(){
     const r = await toJson(await API.listRoster(state.roomId));
     if (!r.ok) return;
+
     const roster = Array.isArray(r.data) ? r.data : (r.data.items || []);
     elRosterList.innerHTML = "";
+
     if (!Array.isArray(roster) || roster.length === 0) {
       const li = document.createElement("li");
       li.textContent = "（まだ誰も参加していません）";
       elRosterList.appendChild(li);
       return;
     }
+
     for (const x of roster){
       const li = document.createElement("li");
       li.textContent = x.display_name || x.name || x.id || "unknown";
@@ -214,8 +266,10 @@
 
     const r = await toJson(await API.listRoomMembers(state.roomId));
     if (!r.ok) return "";
+
     const members = Array.isArray(r.data) ? r.data : (r.data.items || []);
     const id = findRoomMemberIdByName(members, state.name);
+
     if (id) {
       state.roomMemberId = id;
       localStorage.setItem(LS.roomMemberId, id);
@@ -290,24 +344,27 @@
   }
 
   // =========================================================
-  // ここが「イベント登録エリア」
+  // イベント
   // =========================================================
 
-  // ★追加：Enter で参加（click を呼ぶだけ）。click の中には入れない。
+  // Enter で参加（IME変換中のEnterは無視）
   nameInput.addEventListener("keydown", (e) => {
-    if (e.isComposing) return;          // IME変換中の Enter は無視
-    if (e.key === "Enter") joinBtn.click();
+    if (e.isComposing || imeComposing) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      joinBtn.click();
+    }
   });
 
   joinBtn.addEventListener("click", async () => {
     clearMsg();
     if (!state.roomId) { err("URLに room_id がありません"); return; }
+    if (state.joined) { err("すでに参加済みです"); return; }
 
-    // IME入力を確定させる（変換中クリック対策）
-    nameInput.blur();
-    await new Promise(r => setTimeout(r, 0));
+    // IME確定・反映を待ってから value を読む
+    await flushInputValue();
 
-    const name = nameInput.value.trim();
+    const name = (nameInput.value || "").trim();
     if (!name) { err("表示名を入力してください"); return; }
 
     log("参加登録中…");
@@ -350,7 +407,8 @@
     state.gameId = "";
 
     manualGameId.value = "";
-    nameInput.value = "";
+    nameInput.disabled = false;
+    nameInput.value = ""; // ここは「消す」なのでOK
 
     clearMsg();
     setStatePill("未参加");

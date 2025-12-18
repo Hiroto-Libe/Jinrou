@@ -1,5 +1,5 @@
 # app/models/room.py
-from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy import Column, String, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -39,6 +39,7 @@ class RoomMember(Base):
     room_id = Column(String, ForeignKey("rooms.id"), nullable=False)
     display_name = Column(String, nullable=False)
     avatar_url = Column(String, nullable=True)
+    is_host = Column(Boolean, default=False, nullable=False)  # ★司会フラグ
     joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     room = relationship("Room", back_populates="members")

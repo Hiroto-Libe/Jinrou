@@ -259,6 +259,19 @@ def start_game(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
 
+    # ★ ここから追加（司会チェック）
+    host = (
+        db.query(RoomMember)
+          .filter(
+              RoomMember.room_id == game.room_id,
+              RoomMember.is_host == True,
+          )
+          .first()
+    )
+    if not host:
+        raise HTTPException(status_code=400, detail="Host player not found")
+    # ★ ここまで追加
+
     # すでに開始済みなら 400
     # → status ではなく started フラグで判定する
     if getattr(game, "started", False):
@@ -299,14 +312,14 @@ def start_game(
     # started フラグを立てる（元の仕様どおり）
     game.started = True
 
-    # 最初のフェーズを NIGHT にする（ここが今回の追加ポイント）
-    game.status = "NIGHT"
+    # ★ 開始は「昼」から
+    game.status = "DAY_DISCUSSION"
 
-    # 日・夜カウンタがあれば初期化（なければこのブロックは不要）
+    # ★ 昼1日目から開始、夜はまだ来ていない
     if hasattr(game, "curr_day"):
         game.curr_day = 1
     if hasattr(game, "curr_night"):
-        game.curr_night = 1
+        game.curr_night = 0
 
     db.add(game)
     db.commit()

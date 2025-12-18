@@ -171,16 +171,28 @@ def create_members_from_roster(
         return []
 
     members: list[RoomMember] = []
-    for rr, prof in rows:
+
+    existing_count = (
+        db.query(RoomMember)
+        .filter(RoomMember.room_id == room_id)
+        .count()
+    )
+
+    for idx, (rr, prof) in enumerate(rows):
         display_name = rr.alias_name or prof.display_name
+
+        is_host = (existing_count == 0 and idx == 0)
+
         m = RoomMember(
             id=str(uuid.uuid4()),
             room_id=room_id,
             display_name=display_name,
             avatar_url=prof.avatar_url,
+            is_host=is_host,   # ★ここ
         )
         db.add(m)
         members.append(m)
+
 
     db.commit()
     for m in members:
