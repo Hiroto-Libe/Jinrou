@@ -102,6 +102,45 @@ def test_get_nonexistent_game_returns_404(client: TestClient, db: Session):
     assert res.status_code == 404
 
 
+def test_judge_before_role_assignment_is_ongoing(client: TestClient, db: Session):
+    """
+    Game作成直後（役職未割り当て）に /judge を叩いても
+    村人勝利扱いにならないことを確認する。
+    """
+    room = _create_room(client, "Judge Pending")
+    room_id = room["id"]
+
+    for i in range(6):
+        _join_room_roster_and_members(client, room_id, f"Player {i+1}")
+
+    game = _create_game_from_room(client, room_id)
+    game_id = game["id"]
+
+    res = client.get(f"/api/games/{game_id}/judge")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["result"] == "ONGOING"
+
+
+def test_judge_after_start_with_madman_is_ongoing(client: TestClient, db: Session):
+    room = _create_room(client, "Judge After Start")
+    room_id = room["id"]
+
+    for i in range(6):
+        _join_room_roster_and_members(client, room_id, f"Player {i+1}")
+
+    game = _create_game_from_room(client, room_id)
+    game_id = game["id"]
+
+    res_start = client.post(f"/api/games/{game_id}/start")
+    assert res_start.status_code in (200, 204)
+
+    res = client.get(f"/api/games/{game_id}/judge")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["result"] == "ONGOING"
+
+
 def test_game_members_created_from_room_members(client: TestClient, db: Session):
     """
     部屋メンバーからゲーム参加メンバーが正しく作成されること
@@ -137,6 +176,31 @@ def test_game_members_created_from_room_members(client: TestClient, db: Session)
     assert "Bob" in names
 
 
+def test_role_assign_updates_existing_members(client: TestClient, db: Session):
+    room = _create_room(client, "RoleAssign Room")
+    room_id = room["id"]
+
+    for i in range(6):
+        _join_room_roster_and_members(client, room_id, f"Player {i+1}")
+
+    game = _create_game_from_room(client, room_id)
+    game_id = game["id"]
+
+    before = client.get(f"/api/games/{game_id}/members").json()
+    before_ids = {m["id"] for m in before}
+
+    res_assign = client.post(f"/api/games/{game_id}/role_assign")
+    assert res_assign.status_code == 200
+    assigned = res_assign.json()
+
+    after_ids = {m["id"] for m in assigned}
+    assert after_ids == before_ids
+
+    roles = {m["role_type"] for m in assigned}
+    assert "WEREWOLF" in roles
+    assert "VILLAGER" in roles
+
+
 def test_start_game_changes_status(client: TestClient, db: Session):
     """
     ゲーム開始 API がある場合のステータス遷移テスト。
@@ -169,7 +233,31 @@ def test_start_game_changes_status(client: TestClient, db: Session):
     res_after = client.get(f"/api/games/{game_id}")
     assert res_after.status_code == 200
     body_after = res_after.json()
-    assert body_after["status"] == "NIGHT"
+    assert body_after["status"] == "DAY_DISCUSSION"
+
+
+def test_start_does_not_reassign_when_roles_exist(client: TestClient, db: Session):
+    room = _create_room(client, "NoReassign")
+    room_id = room["id"]
+
+    for i in range(6):
+        _join_room_roster_and_members(client, room_id, f"Player {i+1}")
+
+    game = _create_game_from_room(client, room_id)
+    game_id = game["id"]
+
+    res_assign = client.post(f"/api/games/{game_id}/role_assign")
+    assert res_assign.status_code == 200
+    assigned = res_assign.json()
+    roles_before = {m["id"]: m["role_type"] for m in assigned}
+
+    res_start = client.post(f"/api/games/{game_id}/start")
+    assert res_start.status_code in (200, 204)
+
+    members_after = client.get(f"/api/games/{game_id}/members").json()
+    roles_after = {m["id"]: m["role_type"] for m in members_after}
+
+    assert roles_after == roles_before
 
 
 def test_start_game_twice_returns_error(client: TestClient, db: Session):
