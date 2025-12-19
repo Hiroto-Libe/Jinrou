@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .db import Base, engine
+from .db import Base, engine, ensure_room_members_schema
 from .api.v1 import api_router as api_v1_router
 
 # モデルからテーブル作成（開発用）
 Base.metadata.create_all(bind=engine)
+ensure_room_members_schema()
 
 app = FastAPI(
     title="Jinrou API",

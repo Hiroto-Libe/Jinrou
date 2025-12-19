@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 import uuid
 import random 
-from typing import List, Optional, Dict
+from typing import Optional, Dict
 
 from ...api.deps import get_db_dep
 from ...models.room import Room, RoomMember
@@ -47,6 +47,57 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/games", tags=["games"])
 
 
+def _fetch_unique_game_members(game_id: str, db: Session) -> list[GameMember]:
+    """
+    game_id 配下の GameMember を room_member_id ごとに1件へ正規化する。
+    assign_roles の旧実装で重複レコードが作られたケースをここで除去する。
+    """
+    members = (
+        db.query(GameMember)
+        .filter(GameMember.game_id == game_id)
+        .order_by(GameMember.order_no.asc(), GameMember.id.asc())
+        .all()
+    )
+    unique_members: list[GameMember] = []
+    seen_room_members: set[str] = set()
+    duplicates: list[GameMember] = []
+
+    for gm in members:
+        if gm.room_member_id in seen_room_members:
+            duplicates.append(gm)
+        else:
+            seen_room_members.add(gm.room_member_id)
+            unique_members.append(gm)
+
+    if duplicates:
+        for dup in duplicates:
+            db.delete(dup)
+        db.flush()
+
+    return unique_members
+
+
+def _assign_roles_to_members(members: list[GameMember]) -> None:
+    """
+    GameMember 一覧に対して乱択した役職・陣営をセットする。
+    members は既にユニーク化されている前提。
+    """
+    n = len(members)
+    if n < 6:
+        raise HTTPException(status_code=400, detail="Need at least 6 players")
+
+    roles = decide_roles(n)
+    if len(roles) != n:
+        raise HTTPException(status_code=500, detail="Role assignment mismatch")
+
+    shuffled_members = members[:]
+    random.shuffle(shuffled_members)
+
+    for gm, (role_type, team) in zip(shuffled_members, roles):
+        gm.role_type = role_type
+        gm.team = team
+
+
 # -----------------------------
 # 🎮 ゲーム作成
 # -----------------------------
@@ -73,7 +124,7 @@ def create_game(
     game = Game(
         id=str(uuid.uuid4()),
         room_id=room.id,
-        status="waiting",   # 必要なら初期ステータス
+        status="WAITING",   # 初期ステータスは他ロジックと揃えて大文字で管理
     )
     db.add(game)
     db.flush()             # game.id を使うので flush しておく
@@ -119,48 +170,20 @@ def assign_roles(
     if game.status not in ("WAITING", "ROLE_ASSIGN"):
         raise HTTPException(status_code=400, detail="Game already started")
 
-    # 参加メンバー（room_members）を取得
-    room_members: List[RoomMember] = (
-        db.query(RoomMember)
-        .filter(RoomMember.room_id == game.room_id)
-        .all()
-    )
-    n = len(room_members)
-    if n < 6:
-        raise HTTPException(status_code=400, detail="Need at least 6 players")
+    members = _fetch_unique_game_members(game_id, db)
+    if not members:
+        raise HTTPException(status_code=400, detail="No members in game")
 
-    # 人数に応じた役職構成
-    roles = decide_roles(n)
-    if len(roles) != n:
-        raise HTTPException(status_code=500, detail="Role assignment mismatch")
-
-    import random
-    shuffled = room_members[:]
-    random.shuffle(shuffled)
-
-    game_members: list[GameMember] = []
-    for order_no, (rm, (role_type, team)) in enumerate(zip(shuffled, roles), start=1):
-        gm = GameMember(
-            id=str(uuid.uuid4()),
-            game_id=game.id,
-            room_member_id=rm.id,
-            display_name=rm.display_name,
-            avatar_url=rm.avatar_url,
-            role_type=role_type,
-            team=team,
-            alive=True,
-            order_no=order_no,
-        )
-        db.add(gm)
-        game_members.append(gm)
+    _assign_roles_to_members(members)
 
     game.status = "ROLE_ASSIGN"
+    db.add(game)
     db.commit()
 
-    for gm in game_members:
+    for gm in members:
         db.refresh(gm)
 
-    return [GameMemberOut.model_validate(gm) for gm in game_members]
+    return [GameMemberOut.model_validate(gm) for gm in members]
 
 # -----------------------------
 # 🔍 ゲームの状態を強制変更するAPI
@@ -278,12 +301,7 @@ def start_game(
         raise HTTPException(status_code=400, detail="Game already started")
 
     # 参加メンバー取得（GameMember）
-    members = (
-        db.query(GameMember)
-        .filter(GameMember.game_id == game_id)
-        .order_by(GameMember.order_no.asc())
-        .all()
-    )
+    members = _fetch_unique_game_members(game_id, db)
     if not members:
         raise HTTPException(status_code=400, detail="No members in game")
 
@@ -292,20 +310,14 @@ def start_game(
         # decide_roles の設計に合わせて下限6人にしておく（必要なら調整）
         raise HTTPException(status_code=400, detail="Need at least 6 players")
 
-    # 人数に応じた役職構成を取得
-    roles = decide_roles(n)  # [(role_type, team), ...] のリスト
-    if len(roles) != n:
-        raise HTTPException(status_code=500, detail="Role assignment mismatch")
-
-    # ランダムに割り当てるためにシャッフル
-    import random
-    random.shuffle(roles)
-
-    # メンバーに役職と陣営を付与
-    for m, (role_type, team) in zip(members, roles):
-        m.role_type = role_type   # 例: "WEREWOLF", "SEER", "VILLAGER", ...
-        m.team = team             # 例: "WOLF" or "VILLAGE"
-        db.add(m)
+    # 未割り当てならここで役職配布
+    need_assignment = any(
+        m.role_type is None or m.team is None
+        for m in members
+    )
+    if need_assignment:
+        _assign_roles_to_members(members)
+        db.flush()
 
     # --- ゲーム開始フラグ & フェーズ設定 ---
 
@@ -495,11 +507,23 @@ def _judge_game_result(game_id: str, db: Session) -> dict:
         .all()
     )
 
-    wolves = [m for m in alive_members if m.team == "WOLF"]
-    villages = [m for m in alive_members if m.team == "VILLAGE"]
+    real_wolf_count = sum(1 for m in alive_members if m.role_type == "WEREWOLF")
+    village_like_count = len(alive_members) - real_wolf_count
 
-    wolf_count = len(wolves)
-    village_count = len(villages)
+    wolf_count = real_wolf_count
+    village_count = village_like_count
+    # 役職未割り当て状態（team=None 等）では勝敗確定させない
+    pending_assignment = any(
+        (m.team or "").upper() not in ("WOLF", "VILLAGE") for m in alive_members
+    )
+
+    if pending_assignment:
+        return {
+            "result": "ONGOING",
+            "wolf_alive": wolf_count,
+            "village_alive": village_count,
+            "reason": "Roles are not assigned yet.",
+        }
 
     if wolf_count == 0:
         return {
