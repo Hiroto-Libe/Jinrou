@@ -69,6 +69,8 @@
 
   <button id="guard-btn" class="primary" disabled>このプレイヤーを護衛する</button>
   <div id="result" class="log"></div>
+  <div id="host-status" class="status"></div>
+  <button id="host-morning" class="primary" style="margin-top:8px; display:none;">朝の結果へ</button>
 
   <script src="/frontend/js/night_common.js"></script>
   <script>
@@ -81,6 +83,11 @@
       setupAutoResultRedirect(game_id, player_id);
 
       const meNameEl = document.getElementById("me-name");
+      const hostMorningBtn = document.getElementById("host-morning");
+
+      hostMorningBtn.addEventListener("click", () => {
+        location.href = `/frontend/morning.html?game_id=${encodeURIComponent(game_id)}&player_id=${encodeURIComponent(player_id)}`;
+      });
 
       JinrouNight.initNightRolePage({
         expectedRole: "knight",
@@ -186,6 +193,19 @@
           });
         },
       });
+
+      if (JinrouNight?.setupHostNightPanel) {
+        JinrouNight.setupHostNightPanel(game_id, player_id, {
+          statusId: "host-status",
+          buttonId: "host-morning",
+        });
+        setInterval(() => {
+          JinrouNight.setupHostNightPanel(game_id, player_id, {
+            statusId: "host-status",
+            buttonId: "host-morning",
+          });
+        }, 2000);
+      }
     })();
   </script>
 </body>

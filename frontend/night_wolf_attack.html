@@ -373,6 +373,8 @@
         <div class="footer-note">
           ※ 実装時はサーバー側の夜処理ロジックと連携します。
         </div>
+        <div class="footer-note" id="host-status"></div>
+        <button class="attack-button" id="host-morning" style="display:none; margin-top:8px;">朝の結果へ</button>
       </section>
     </div>
   </div>
@@ -385,6 +387,7 @@
       const phaseTitle = document.getElementById("phase-title");
       const meNameEl = document.getElementById("me-name");
       const aliveCountEl = document.getElementById("alive-count");
+      const hostMorningBtn = document.getElementById("host-morning");
 
       const params = new URLSearchParams(window.location.search);
 
@@ -392,6 +395,10 @@
       const game_id = params.get("game_id");
       const player_id = params.get("player_id");
       setupAutoResultRedirect(game_id, player_id);
+
+      hostMorningBtn.addEventListener("click", () => {
+        location.href = `/frontend/morning.html?game_id=${encodeURIComponent(game_id)}&player_id=${encodeURIComponent(player_id)}`;
+      });
 
       const nightNo = params.get("night") ?? "1";
       phaseTitle.textContent = `Night ${nightNo} 人狼の襲撃フェーズ`;
@@ -582,6 +589,19 @@
           });
         },
       });
+
+      if (JinrouNight?.setupHostNightPanel) {
+        JinrouNight.setupHostNightPanel(game_id, player_id, {
+          statusId: "host-status",
+          buttonId: "host-morning",
+        });
+        setInterval(() => {
+          JinrouNight.setupHostNightPanel(game_id, player_id, {
+            statusId: "host-status",
+            buttonId: "host-morning",
+          });
+        }, 2000);
+      }
     })();
   </script>
 </body>

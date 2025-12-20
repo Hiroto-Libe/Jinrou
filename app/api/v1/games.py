@@ -24,6 +24,7 @@ from ...schemas.night import (
     WolfVoteOut,
     WolfTallyItem,
     WolfTallyOut,
+    NightActionsStatusOut,
 )
 from ...schemas.day import (  # ★ 追加
     DayVoteCreate,
@@ -466,6 +467,9 @@ def day_vote(
     if voter.id == target.id:
         raise HTTPException(status_code=400, detail="Player cannot vote for themselves")
 
+    if voter.role_type == "WEREWOLF" and target.role_type == "WEREWOLF":
+        raise HTTPException(status_code=400, detail="Werewolf cannot vote for another werewolf")
+
     day_no = game.curr_day
 
     # 既存投票があれば上書き
@@ -596,6 +600,66 @@ def wolf_tally(
         game_id=game_id,
         night_no=night_no,
         items=items,
+    )
+
+
+@router.get("/{game_id}/night_actions_status", response_model=NightActionsStatusOut)
+def night_actions_status(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    night_no = game.curr_night
+
+    alive_members = (
+        db.query(GameMember)
+        .filter(GameMember.game_id == game_id, GameMember.alive == True)
+        .all()
+    )
+
+    wolves = [m for m in alive_members if m.role_type == "WEREWOLF"]
+    seers = [m for m in alive_members if m.role_type == "SEER"]
+    knights = [m for m in alive_members if m.role_type == "KNIGHT"]
+
+    wolves_done = (
+        db.query(func.count(func.distinct(WolfVote.wolf_member_id)))
+        .filter(WolfVote.game_id == game_id, WolfVote.night_no == night_no)
+        .scalar()
+    ) or 0
+    seer_done = (
+        db.query(func.count(func.distinct(SeerInspect.seer_member_id)))
+        .filter(SeerInspect.game_id == game_id, SeerInspect.night_no == night_no)
+        .scalar()
+    ) or 0
+    knight_done = (
+        db.query(func.count(func.distinct(KnightGuard.knight_member_id)))
+        .filter(KnightGuard.game_id == game_id, KnightGuard.night_no == night_no)
+        .scalar()
+    ) or 0
+
+    wolves_total = len(wolves)
+    seer_total = len(seers)
+    knight_total = len(knights)
+
+    all_done = (
+        wolves_done >= wolves_total
+        and seer_done >= seer_total
+        and knight_done >= knight_total
+    )
+
+    return NightActionsStatusOut(
+        game_id=game_id,
+        night_no=night_no,
+        wolves_total=wolves_total,
+        wolves_done=int(wolves_done),
+        seer_total=seer_total,
+        seer_done=int(seer_done),
+        knight_total=knight_total,
+        knight_done=int(knight_done),
+        all_done=all_done,
     )
 
 

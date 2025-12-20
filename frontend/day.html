@@ -26,6 +26,7 @@
       min-height:72px;
     }
     .member-card.dead { opacity:.4; cursor:not-allowed; }
+    .member-card.disabled { opacity:.5; cursor:not-allowed; }
     .member-card.self { outline:2px dashed #bbb; }
     .member-card.selected { border-color:#0066cc; box-shadow:0 0 0 2px rgba(0,102,204,.18); }
     .name { font-weight:600; }
@@ -165,17 +166,22 @@
 
         const subDiv = document.createElement("div");
         subDiv.className = "sub";
+        const meIsWolf = (me?.role === "wolf" || me?.role === "werewolf");
+        const isWolfAlly = m.role_type === "WEREWOLF";
+
         if (!alive) subDiv.textContent = "死亡";
         else if (isSelf) subDiv.textContent = "あなた（自投票は可/不可は運用次第）";
+        else if (meIsWolf && isWolfAlly) subDiv.textContent = "同じ人狼には投票できません";
         else subDiv.textContent = "タップして投票対象に選択";
 
         card.appendChild(nameDiv);
         card.appendChild(subDiv);
 
         // 仕様：死者は投票対象にできない。投票可能状態でなければクリック不可
-        if (!alive || !canVote) {
+        if (!alive || !canVote || (meIsWolf && isWolfAlly)) {
           card.style.pointerEvents = "none";
           card.style.opacity = alive ? 0.85 : 0.4;
+          if (meIsWolf && isWolfAlly) card.classList.add("disabled");
         } else {
           card.addEventListener("click", () => {
             membersEl.querySelectorAll(".member-card").forEach(el => el.classList.remove("selected"));
@@ -204,7 +210,6 @@
     }
 
     async function sync() {
-      tallyArea.textContent = "まだ集計していません。";
       selected = null;
       voteBtn.disabled = true;
 
@@ -216,6 +221,18 @@
       try {
         const g = await fetchGame();
         const st = String(g.status || "").toUpperCase();
+        const tallyDayNo = (st === "NIGHT")
+          ? Math.max(1, (g.curr_day || 1) - 1)
+          : (g.curr_day || 1);
+        const prevTallyDay = Number(tallyArea.dataset.tallyDay || "0");
+        if (!prevTallyDay) {
+          tallyArea.textContent = "まだ集計していません。";
+          tallyArea.dataset.tallyDay = String(tallyDayNo);
+        }
+        if (prevTallyDay && tallyDayNo > prevTallyDay) {
+          tallyArea.textContent = "まだ集計していません。";
+          tallyArea.dataset.tallyDay = String(tallyDayNo);
+        }
 
         me = await fetchMe();
         members = await fetchMembers();
@@ -293,7 +310,12 @@
     async function showTally() {
       tallyArea.textContent = "集計中...";
       try {
-        const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/day_tally`);
+        const g = await fetchGame();
+        const st = String(g.status || "").toUpperCase();
+        const dayNo = (st === "NIGHT")
+          ? Math.max(1, (g.curr_day || 1) - 1)
+          : (g.curr_day || 1);
+        const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/day_tally?day_no=${encodeURIComponent(dayNo)}`);
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           tallyArea.innerHTML = `<div class="error">集計取得失敗(${res.status}): ${JSON.stringify(data)}</div>`;
@@ -320,6 +342,7 @@
             <tbody>${rows}</tbody>
           </table>
         `;
+        tallyArea.dataset.tallyDay = String(dayNo);
       } catch (e) {
         console.error(e);
         tallyArea.innerHTML = `<div class="error">${String(e)}</div>`;
@@ -363,7 +386,21 @@
     }
 
     document.getElementById("refresh").addEventListener("click", sync);
-    document.getElementById("to-night").addEventListener("click", () => jump("role_confirm.html"));
+    async function goNightDirect() {
+      try {
+        if (!me) me = await fetchMe();
+        const role = me?.role;
+        if (role === "seer") return jump("seer_night.html");
+        if (role === "knight") return jump("knight_night.html");
+        if (role === "wolf" || role === "werewolf") return jump("night_wolf_attack.html");
+        return jump("night_wait.html");
+      } catch (e) {
+        console.error(e);
+        log("夜画面への移動に失敗しました。", "error");
+      }
+    }
+
+    document.getElementById("to-night").addEventListener("click", goNightDirect);
     voteBtn.addEventListener("click", doVote);
     document.getElementById("tally-btn").addEventListener("click", showTally);
     resolveBtn.addEventListener("click", resolveDay);

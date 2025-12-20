@@ -131,3 +131,29 @@ def test_day_vote_and_resolve_day_executes_target(db: Session, client: TestClien
     db.refresh(game_after)
     assert game_after.last_executed_member_id == target.id
 
+
+def test_day_vote_blocks_wolf_voting_wolf(db: Session, client: TestClient):
+    game_id, members = _setup_started_game(db, client, member_count=8)
+
+    game = db.get(Game, game_id)
+    game.status = "DAY_DISCUSSION"
+    game.curr_day = game.curr_day or 1
+    db.add(game)
+    db.commit()
+
+    wolves = [m for m in members if m.role_type == "WEREWOLF"]
+    assert len(wolves) >= 2
+
+    voter = wolves[0]
+    target = wolves[1]
+
+    res = client.post(
+        f"/api/games/{game_id}/day_vote",
+        json={
+            "voter_member_id": voter.id,
+            "target_member_id": target.id,
+        },
+    )
+    assert res.status_code == 400
+    body = res.json()
+    assert body["detail"] == "Werewolf cannot vote for another werewolf"

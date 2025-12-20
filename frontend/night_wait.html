@@ -31,6 +31,7 @@
     </div>
 
     <div class="status" id="status">読み込み中...</div>
+    <div class="small" id="host-status"></div>
 
     <div class="row">
       <button class="ghost" id="refresh">状態を更新</button>
@@ -53,6 +54,7 @@
     const statusEl = document.getElementById("status");
     const logEl = document.getElementById("log");
     const goMorningBtn = document.getElementById("go-morning");
+    const hostStatusEl = document.getElementById("host-status");
 
     function log(msg, type) {
       const div = document.createElement("div");
@@ -73,6 +75,12 @@
       return await res.json();
     }
 
+    async function fetchNightActionsStatus() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/night_actions_status`);
+      if (!res.ok) throw new Error(`night_actions_status取得失敗(${res.status})`);
+      return await res.json();
+    }
+
     function jump(path) {
       location.href = `/frontend/${path}?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
     }
@@ -83,12 +91,15 @@
         return;
       }
       try {
-        const [g, me] = await Promise.all([fetchGame(), fetchMe()]);
+        const [g, me, actions] = await Promise.all([fetchGame(), fetchMe(), fetchNightActionsStatus()]);
         const st = String(g.status || "").toUpperCase();
         statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span>`;
         const isHost = !!me?.is_host;
         goMorningBtn.disabled = !isHost;
         goMorningBtn.title = isHost ? "" : "司会のみ実行できます";
+        hostStatusEl.textContent = isHost
+          ? `夜行動の進捗：人狼 ${actions.wolves_done}/${actions.wolves_total}・占い師 ${actions.seer_done}/${actions.seer_total}・騎士 ${actions.knight_done}/${actions.knight_total}（全完了: ${actions.all_done ? "はい" : "いいえ"}）`
+          : "";
 
         // 夜が終わってDAY_DISCUSSIONになっていたら昼へ
         if (st === "DAY_DISCUSSION") jump("day.html");

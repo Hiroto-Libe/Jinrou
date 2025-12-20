@@ -38,3 +38,16 @@ class WolfTallyOut(BaseModel):
     game_id: str
     night_no: int
     items: list[WolfTallyItem]
+
+
+class NightActionsStatusOut(BaseModel):
+    """夜行動の進捗（司会向け）"""
+    game_id: str
+    night_no: int
+    wolves_total: int
+    wolves_done: int
+    seer_total: int
+    seer_done: int
+    knight_total: int
+    knight_done: int
+    all_done: bool

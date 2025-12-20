@@ -38,6 +38,15 @@
     return await res.json();
   }
 
+  async function fetchNightActionsStatus(gameId) {
+    const res = await fetch(
+      `${API_BASE}/games/${encodeURIComponent(gameId)}/night_actions_status`
+    );
+    if (!res.ok)
+      throw new Error(`夜行動状況の取得に失敗しました (${res.status})`);
+    return await res.json();
+  }
+
   function defaultRenderMembers({
     members,
     me,
@@ -265,7 +274,40 @@
     }
   }
 
-  global.JinrouNight = { initNightRolePage };
+  async function setupHostNightPanel(gameId, playerId, opts = {}) {
+    const statusEl = document.getElementById(opts.statusId || "host-status");
+    const buttonEl = document.getElementById(opts.buttonId || "host-morning");
+    if (!statusEl || !buttonEl) return;
+
+    try {
+      const [me, actions] = await Promise.all([
+        fetchMe(gameId, playerId),
+        fetchNightActionsStatus(gameId),
+      ]);
+
+      const isHost = !!me?.is_host;
+      if (!isHost) {
+        statusEl.textContent = "";
+        buttonEl.disabled = true;
+        buttonEl.style.display = "none";
+        return;
+      }
+
+      statusEl.textContent =
+        `夜行動の進捗：人狼 ${actions.wolves_done}/${actions.wolves_total}` +
+        `・占い師 ${actions.seer_done}/${actions.seer_total}` +
+        `・騎士 ${actions.knight_done}/${actions.knight_total}` +
+        `（全完了: ${actions.all_done ? "はい" : "いいえ"}）`;
+
+      buttonEl.disabled = !actions.all_done;
+      buttonEl.title = actions.all_done ? "" : "全員の夜行動が完了するまで押せません";
+      buttonEl.style.display = "";
+    } catch (_) {
+      // 司会向けの補助表示なので失敗してもゲーム進行は止めない
+    }
+  }
+
+  global.JinrouNight = { initNightRolePage, setupHostNightPanel };
 })(window);
 
 // ===== Win/Lose auto redirect =====
