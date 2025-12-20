@@ -6,6 +6,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.game import Game, GameMember, DayVote
+from app.models.room import Room, RoomMember
+from app.schemas.day import DayResolveRequest
 from app.api.v1.games import resolve_day_simple
 
 
@@ -18,9 +20,16 @@ def _create_game_for_day_resolve(
     昼決着テスト用のゲームとメンバーを作るユーティリティ。
     デフォルトは 狼1 / 村4 → 村を1人処刑してもゲーム継続（NIGHTに進む）想定。
     """
+    room = Room(
+        id="dummy-room",
+        name="day resolve room",
+    )
+    db.add(room)
+    db.flush()
+
     game = Game(
         id=str(uuid.uuid4()),
-        room_id="dummy-room",
+        room_id=room.id,
         status="DAY_DISCUSSION",
         curr_day=1,
         curr_night=1,
@@ -33,10 +42,20 @@ def _create_game_for_day_resolve(
 
     # 狼メンバー
     for i in range(wolf_count):
+        room_member_id = f"wolf-room-member-{i}"
+        rm = RoomMember(
+            id=room_member_id,
+            room_id=room.id,
+            display_name=f"Wolf{i+1}",
+            avatar_url=None,
+            is_host=(i == 0),
+        )
+        db.add(rm)
+
         m = GameMember(
             id=str(uuid.uuid4()),
             game_id=game.id,
-            room_member_id=f"wolf-room-member-{i}",
+            room_member_id=room_member_id,
             display_name=f"Wolf{i+1}",
             avatar_url=None,
             role_type="WEREWOLF",
@@ -49,10 +68,20 @@ def _create_game_for_day_resolve(
 
     # 村メンバー
     for i in range(village_count):
+        room_member_id = f"vill-room-member-{i}"
+        rm = RoomMember(
+            id=room_member_id,
+            room_id=room.id,
+            display_name=f"Villager{i+1}",
+            avatar_url=None,
+            is_host=False,
+        )
+        db.add(rm)
+
         m = GameMember(
             id=str(uuid.uuid4()),
             game_id=game.id,
-            room_member_id=f"vill-room-member-{i}",
+            room_member_id=room_member_id,
             display_name=f"Villager{i+1}",
             avatar_url=None,
             role_type="VILLAGER",
@@ -97,7 +126,14 @@ def test_resolve_day_simple_executes_top_voted_and_sets_last_executed(db: Sessio
     db.commit()
 
     # 実行
-    result = resolve_day_simple(game_id=game.id, db=db)
+    host_game_member = next(
+        m for m in members if m.room_member_id == "wolf-room-member-0"
+    )
+    result = resolve_day_simple(
+        game_id=game.id,
+        data=DayResolveRequest(requester_member_id=host_game_member.id),
+        db=db,
+    )
 
     db.refresh(game)
     db.refresh(victim)
@@ -142,7 +178,14 @@ def test_resolve_day_simple_tie_votes_executes_one_of_them(db: Session):
     db.commit()
 
     # 実行
-    result = resolve_day_simple(game_id=game.id, db=db)
+    host_game_member = next(
+        m for m in members if m.room_member_id == "wolf-room-member-0"
+    )
+    result = resolve_day_simple(
+        game_id=game.id,
+        data=DayResolveRequest(requester_member_id=host_game_member.id),
+        db=db,
+    )
 
     db.refresh(game)
     db.refresh(candidate1)
@@ -169,19 +212,22 @@ def test_resolve_day_simple_raises_when_not_day_discussion(db: Session):
     """
     Game.status が DAY_DISCUSSION 以外の場合は 400 エラーになること。
     """
-    game = Game(
-        id=str(uuid.uuid4()),
-        room_id="dummy-room",
-        status="NIGHT",  # 昼議論状態ではない
-        curr_day=1,
-        curr_night=1,
-    )
+    game, members = _create_game_for_day_resolve(db, wolf_count=1, village_count=4)
+    game.status = "NIGHT"  # 昼議論状態ではない
     db.add(game)
     db.commit()
     db.refresh(game)
 
+    host_game_member = next(
+        m for m in members if m.room_member_id == "wolf-room-member-0"
+    )
+
     with pytest.raises(HTTPException) as exc:
-        resolve_day_simple(game_id=game.id, db=db)
+        resolve_day_simple(
+            game_id=game.id,
+            data=DayResolveRequest(requester_member_id=host_game_member.id),
+            db=db,
+        )
 
     assert exc.value.status_code == 400
     assert "DAY_DISCUSSION" in exc.value.detail
@@ -191,19 +237,17 @@ def test_resolve_day_simple_raises_when_no_votes(db: Session):
     """
     昼の投票が1件もない場合は 400 エラー (No day votes to resolve) になること。
     """
-    game = Game(
-        id=str(uuid.uuid4()),
-        room_id="dummy-room",
-        status="DAY_DISCUSSION",
-        curr_day=1,
-        curr_night=1,
+    game, members = _create_game_for_day_resolve(db, wolf_count=1, village_count=4)
+    host_game_member = next(
+        m for m in members if m.room_member_id == "wolf-room-member-0"
     )
-    db.add(game)
-    db.commit()
-    db.refresh(game)
 
     with pytest.raises(HTTPException) as exc:
-        resolve_day_simple(game_id=game.id, db=db)
+        resolve_day_simple(
+            game_id=game.id,
+            data=DayResolveRequest(requester_member_id=host_game_member.id),
+            db=db,
+        )
 
     assert exc.value.status_code == 400
     assert exc.value.detail == "No day votes to resolve"

@@ -58,15 +58,24 @@
       return await res.json();
     }
 
+    async function fetchMe() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/me?player_id=${encodeURIComponent(playerId)}`);
+      if (!res.ok) throw new Error(`me取得失敗(${res.status})`);
+      return await res.json();
+    }
+
     async function sync() {
       if (!gameId || !playerId) {
         statusEl.textContent = "game_id / player_id がURLにありません。";
         return;
       }
       try {
-        const g = await fetchGame();
+        const [g, me] = await Promise.all([fetchGame(), fetchMe()]);
         const st = String(g.status || "").toUpperCase();
-        statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span>`;
+        const isHost = !!me?.is_host;
+        statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span> / 司会：${isHost ? "あなた" : "別の人"}`;
+        document.getElementById("resolve").disabled = !isHost;
+        document.getElementById("resolve").title = isHost ? "" : "司会のみ実行できます";
 
         // もうDAYなら昼へ
         if (st === "DAY_DISCUSSION") {
@@ -81,10 +90,14 @@
     async function resolveNight() {
       resultEl.textContent = "";
       try {
-        const g = await fetchGame();
+        const [g, me] = await Promise.all([fetchGame(), fetchMe()]);
         const st = String(g.status || "").toUpperCase();
         if (st !== "NIGHT") {
           resultEl.innerHTML = `<div class="error">NIGHTではありません（現在：${st}）。夜明け処理は実行できません。</div>`;
+          return;
+        }
+        if (!me?.is_host) {
+          resultEl.innerHTML = `<div class="error">司会のみ実行できます。</div>`;
           return;
         }
 

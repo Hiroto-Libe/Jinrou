@@ -41,7 +41,8 @@
     <div class="log" id="log"></div>
   </div>
 
-  <script src="/frontend/js/night_common.js">
+  <script src="/frontend/js/night_common.js"></script>
+  <script>
     const qs = new URLSearchParams(location.search);
     const gameId = qs.get("game_id");
     const playerId = qs.get("player_id");
@@ -51,6 +52,7 @@
 
     const statusEl = document.getElementById("status");
     const logEl = document.getElementById("log");
+    const goMorningBtn = document.getElementById("go-morning");
 
     function log(msg, type) {
       const div = document.createElement("div");
@@ -65,6 +67,12 @@
       return await res.json();
     }
 
+    async function fetchMe() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/me?player_id=${encodeURIComponent(playerId)}`);
+      if (!res.ok) throw new Error(`me取得失敗(${res.status})`);
+      return await res.json();
+    }
+
     function jump(path) {
       location.href = `/frontend/${path}?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
     }
@@ -75,9 +83,12 @@
         return;
       }
       try {
-        const g = await fetchGame();
+        const [g, me] = await Promise.all([fetchGame(), fetchMe()]);
         const st = String(g.status || "").toUpperCase();
         statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span>`;
+        const isHost = !!me?.is_host;
+        goMorningBtn.disabled = !isHost;
+        goMorningBtn.title = isHost ? "" : "司会のみ実行できます";
 
         // 夜が終わってDAY_DISCUSSIONになっていたら昼へ
         if (st === "DAY_DISCUSSION") jump("day.html");

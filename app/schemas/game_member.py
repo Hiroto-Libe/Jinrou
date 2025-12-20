@@ -6,3 +6,4 @@ class GameMemberMe(BaseModel):
     player_id: str
     role: str    # "villager", "seer", "knight", "wolf", "madman" など
     status: str  # "alive" / "dead"
+    is_host: bool = False

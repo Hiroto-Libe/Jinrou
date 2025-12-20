@@ -28,3 +28,7 @@ class DayTallyOut(BaseModel):
     game_id: str
     day_no: int
     items: list[DayTallyItem]
+
+
+class DayResolveRequest(BaseModel):
+    requester_member_id: str

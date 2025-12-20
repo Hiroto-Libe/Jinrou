@@ -72,7 +72,7 @@
         <div class="row">
           <button class="primary" id="vote-btn" disabled>この人に投票する</button>
           <button class="ghost" id="tally-btn">集計を見る</button>
-          <button class="danger" id="resolve-day">処刑を確定して夜へ</button>
+          <button class="danger" id="resolve-day">処刑を確定</button>
         </div>
       </div>
 
@@ -106,10 +106,12 @@
 
     const voteBtn = document.getElementById("vote-btn");
     const resolveBtn = document.getElementById("resolve-day");
+    const tallyBtn = document.getElementById("tally-btn");
 
     let me = null;
     let members = [];
     let selected = null;
+    let selectedId = null;
 
     function jump(path) {
       location.href = `/frontend/${path}?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
@@ -143,6 +145,7 @@
     function renderMembers(canVote) {
       membersEl.innerHTML = "";
       const selfId = me?.player_id || me?.game_member_id;
+      let foundSelected = false;
 
       members.forEach(m => {
         const card = document.createElement("div");
@@ -178,17 +181,29 @@
             membersEl.querySelectorAll(".member-card").forEach(el => el.classList.remove("selected"));
             card.classList.add("selected");
             selected = m;
+            selectedId = m.id;
             voteBtn.disabled = false;
             voteStatusEl.textContent = `投票先：${name}`;
           });
         }
 
+        if (canVote && selectedId && m.id === selectedId) {
+          card.classList.add("selected");
+          selected = m;
+          voteBtn.disabled = false;
+          voteStatusEl.textContent = `投票先：${name}`;
+          foundSelected = true;
+        }
+
         membersEl.appendChild(card);
       });
+
+      if (!foundSelected) {
+        selectedId = null;
+      }
     }
 
     async function sync() {
-      logEl.innerHTML = "";
       tallyArea.textContent = "まだ集計していません。";
       selected = null;
       voteBtn.disabled = true;
@@ -201,14 +216,6 @@
       try {
         const g = await fetchGame();
         const st = String(g.status || "").toUpperCase();
-        statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span>`;
-
-        // 状態がNIGHTなら夜へ（役職画面へ戻す）
-        if (st === "NIGHT") {
-          voteStatusEl.textContent = "現在は夜です。夜画面へ移動します。";
-          jump("role_confirm.html");
-          return;
-        }
 
         me = await fetchMe();
         members = await fetchMembers();
@@ -219,12 +226,31 @@
         meNameEl.textContent = meMember?.display_name || meMember?.name || "あなた";
 
         const canVote = (st === "DAY_DISCUSSION");
+        const isHost = !!me?.is_host;
+        statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span> / 司会：${isHost ? "あなた" : "別の人"}`;
         voteBtn.disabled = !canVote;
-        resolveBtn.disabled = !canVote;
+        resolveBtn.disabled = !canVote || !isHost;
+        resolveBtn.title = isHost ? "" : "司会のみ実行できます";
+        tallyBtn.disabled = false;
 
-        voteStatusEl.textContent = canVote
-          ? "対象を選んで投票してください。"
-          : `投票できない状態です（現在：${st}）。`;
+        if (st === "NIGHT") {
+          const executedId = g.last_executed_member_id;
+          const executedMember = members.find(x => x.id === executedId);
+          const executedName = executedMember?.display_name || executedMember?.name || "不明";
+          voteStatusEl.textContent = executedId
+            ? `本日の処刑結果：${executedName}（夜へ進むボタンを押してください）`
+            : "夜に移行しました。夜へ進むボタンを押してください。";
+          tallyBtn.classList.add("primary");
+          tallyBtn.classList.remove("ghost");
+          tallyBtn.textContent = "集計を見る（結果確認）";
+        } else {
+          voteStatusEl.textContent = canVote
+            ? "対象を選んで投票してください。"
+            : `投票できない状態です（現在：${st}）。`;
+          tallyBtn.classList.remove("primary");
+          tallyBtn.classList.add("ghost");
+          tallyBtn.textContent = "集計を見る";
+        }
 
         renderMembers(canVote);
       } catch (e) {
@@ -313,7 +339,7 @@
         const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/resolve_day_simple`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: "{}",
+          body: JSON.stringify({ requester_member_id: me.player_id }),
         });
 
         const data = await res.json().catch(() => ({}));
@@ -322,13 +348,14 @@
           return;
         }
 
-        log("処刑を確定しました。夜へ移動します。", "success");
+        log("処刑を確定しました。結果を確認してから夜へ進んでください。", "success");
 
         // ★追加：処刑で勝敗確定するので最重要
         await redirectIfFinished(gameId, playerId);
 
-        // resolve_day_simple が NIGHT に進めるので夜へ
-        jump("role_confirm.html");
+        // resolve_day_simple が NIGHT に進めるので、結果確認後に手動で夜へ進む
+        await sync();
+        await showTally();
       } catch (e) {
         console.error(e);
         log(String(e), "error");

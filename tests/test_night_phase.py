@@ -23,6 +23,7 @@ def _create_room_with_members(db: Session, member_count: int = 8) -> Room:
             room_id=room.id,
             display_name=f"Player{i}",
             avatar_url=None,
+            is_host=(i == 1),
         )
         db.add(rm)
 

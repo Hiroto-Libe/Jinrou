@@ -30,6 +30,7 @@ from ...schemas.day import (  # ★ 追加
     DayVoteOut,
     DayTallyItem,
     DayTallyOut,
+    DayResolveRequest,
 )
 from ...schemas.seer import (
     SeerFirstWhiteOut,
@@ -918,6 +919,7 @@ def day_tally(
 @router.post("/{game_id}/resolve_day_simple")
 def resolve_day_simple(
     game_id: str,
+    data: DayResolveRequest | None = None,
     db: Session = Depends(get_db_dep),
 ):
     """
@@ -936,6 +938,17 @@ def resolve_day_simple(
     game = db.get(Game, game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
+
+    if data is None or not data.requester_member_id:
+        raise HTTPException(status_code=400, detail="requester_member_id required")
+
+    requester = db.get(GameMember, data.requester_member_id)
+    if not requester or requester.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Requester member not found")
+
+    requester_room_member = db.get(RoomMember, requester.room_member_id)
+    if not requester_room_member or not requester_room_member.is_host:
+        raise HTTPException(status_code=403, detail="Host only")
 
     if game.status != "DAY_DISCUSSION":
         raise HTTPException(status_code=400, detail="Game is not in DAY_DISCUSSION phase")
@@ -1502,6 +1515,9 @@ def get_my_info(
     if not member or member.game_id != game_id:
         raise HTTPException(status_code=404, detail="Member not found in this game")
 
+    room_member = db.get(RoomMember, member.room_member_id)
+    is_host = bool(room_member and room_member.is_host)
+
     # role_type は "WEREWOLF" / "SEER" ... なので、フロント向けに小文字にマップする
     role_key = ROLE_MAP.get(member.role_type, "villager")
     status = "alive" if member.alive else "dead"
@@ -1511,4 +1527,5 @@ def get_my_info(
         player_id=member.id,
         role=role_key,
         status=status,
+        is_host=is_host,
     )

@@ -36,6 +36,7 @@ class GameOut(BaseModel):
     status: str
     curr_day: int
     curr_night: int
+    last_executed_member_id: Optional[str] = None
 
     class Config:
         from_attributes = True

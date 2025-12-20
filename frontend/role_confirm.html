@@ -124,7 +124,7 @@
     if (status === "NIGHT") {
       if (role === "seer") return goto("seer_night.html");
       if (role === "knight") return goto("knight_night.html");
-      if (role === "werewolf") return goto("night_wolf_attack.html");
+      if (role === "werewolf" || role === "wolf") return goto("night_wolf_attack.html");
       return goto("night_wait.html"); // 村人・狂人
     }
 

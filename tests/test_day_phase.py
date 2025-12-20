@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from fastapi.testclient import TestClient
 
 from app.models.game import Game, GameMember
+from app.models.room import RoomMember
 
 
 def _setup_started_game(db: Session, client: TestClient, member_count: int = 8):
@@ -24,13 +25,17 @@ def test_day_vote_requires_day_discussion_phase(db: Session, client: TestClient)
     game_id, members = _setup_started_game(db, client, member_count=8)
 
     game = db.get(Game, game_id)
-    # start_game 直後は NIGHT のはず
-    assert game.status == "NIGHT"
+    # start_game 直後は DAY_DISCUSSION のはず
+    assert game.status == "DAY_DISCUSSION"
 
     voter = members[0]
     target = members[1]
 
     # --- 1. NIGHT フェーズで叩くと 400 ---
+    game.status = "NIGHT"
+    db.add(game)
+    db.commit()
+
     res = client.post(
         f"/api/games/{game_id}/day_vote",
         json={
@@ -96,7 +101,20 @@ def test_day_vote_and_resolve_day_executes_target(db: Session, client: TestClien
         assert res.status_code == 200
 
     # --- 昼の解決を実行 ---
-    res_resolve = client.post(f"/api/games/{game_id}/resolve_day_simple")
+    host_room_member = (
+        db.query(RoomMember)
+        .filter(RoomMember.room_id == game.room_id, RoomMember.is_host == True)
+        .first()
+    )
+    assert host_room_member is not None
+    host_game_member = next(
+        m for m in members if m.room_member_id == host_room_member.id
+    )
+
+    res_resolve = client.post(
+        f"/api/games/{game_id}/resolve_day_simple",
+        json={"requester_member_id": host_game_member.id},
+    )
     assert res_resolve.status_code == 200
 
     # --- API 経由でメンバー情報を取得し、ターゲットが死亡扱いになっていることを確認 ---
@@ -110,7 +128,6 @@ def test_day_vote_and_resolve_day_executes_target(db: Session, client: TestClien
 
     # ついでに、ゲーム側の last_executed_member_id もターゲットになっていることを確認
     game_after = db.get(Game, game_id)
+    db.refresh(game_after)
     assert game_after.last_executed_member_id == target.id
-
-
 
