@@ -141,7 +141,7 @@
 
   <div class="host-banner" id="hostBanner">
     <div class="title">🎉 決着しました（司会用）</div>
-    <div class="desc">このまま役職を公開しますか？（公開は3秒後に自動でOFFに戻ります）</div>
+    <div class="desc">このまま役職を公開しますか？</div>
     <div class="actions">
       <button class="btn ghost" id="bannerLater">あとで</button>
       <button class="btn primary" id="bannerReveal">公開する（ON）</button>
@@ -180,8 +180,6 @@
     const BANNER_KEY = "jinrou_reveal_banner_shown";
     revealToggle.checked = (localStorage.getItem(REVEAL_KEY) === "1");
 
-    // ★追加：自動OFFタイマー
-    let autoOffTimer = null;
 
     function log(msg) {
       const div = document.createElement("div");
@@ -243,16 +241,7 @@
       hostBanner.style.display = "none";
     }
 
-    function clearAutoOffTimer() {
-      if (autoOffTimer) {
-        clearTimeout(autoOffTimer);
-        autoOffTimer = null;
-      }
-    }
-
     function setReveal(on) {
-      clearAutoOffTimer();
-
       revealToggle.checked = !!on;
       localStorage.setItem(REVEAL_KEY, on ? "1" : "0");
       updateRevealBar();
@@ -260,17 +249,6 @@
 
       if (lastMembers) renderMembers(lastMembers, lastJudge);
       log(on ? "役職公開：ON（司会用）" : "役職公開：OFF");
-
-      if (on) {
-        autoOffTimer = setTimeout(() => {
-          if (!revealToggle.checked) return;
-          revealToggle.checked = false;
-          localStorage.setItem(REVEAL_KEY, "0");
-          updateRevealBar();
-          if (lastMembers) renderMembers(lastMembers, lastJudge);
-          log("役職公開：自動でOFFに戻しました（事故防止）");
-        }, 3000);
-      }
     }
 
     // ★追加：スクロール固定のON/OFF
@@ -329,12 +307,30 @@
         return aa ? -1 : 1;
       });
 
+      function translateTeam(team) {
+        const t = String(team || "").toUpperCase();
+        if (t === "WOLF") return "人狼陣営";
+        if (t === "VILLAGE") return "村人陣営";
+        return team || "-";
+      }
+
+      function translateRole(role) {
+        const r = String(role || "").toUpperCase();
+        if (r === "WEREWOLF") return "人狼";
+        if (r === "SEER") return "占い師";
+        if (r === "KNIGHT") return "騎士";
+        if (r === "VILLAGER") return "村人";
+        if (r === "MADMAN") return "狂人";
+        if (r === "MEDIUM") return "霊媒師";
+        return role || "-";
+      }
+
       const rows = sorted.map(m => {
         const alive = (m.alive !== false);
         const name = m.display_name || m.name || m.id;
 
-        const team = reveal ? (m.team || "-") : "???";
-        const role = reveal ? (m.role_type || "-") : "???";
+        const team = reveal ? translateTeam(m.team) : "???";
+        const role = reveal ? translateRole(m.role_type) : "???";
 
         return `
           <tr class="${alive ? "" : "dead"}">

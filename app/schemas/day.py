@@ -32,3 +32,11 @@ class DayTallyOut(BaseModel):
 
 class DayResolveRequest(BaseModel):
     requester_member_id: str
+
+
+class DayVoteStatusOut(BaseModel):
+    game_id: str
+    day_no: int
+    alive_total: int
+    voted_count: int
+    all_done: bool

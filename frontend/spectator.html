@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>観戦モード</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; background:#f5f5f5; }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    .box { background:#fff; border:1px solid #ddd; border-radius:12px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,.04); margin-bottom:12px; }
+    .status { margin-top:6px; color:#444; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; font-size:.82rem; color:#333; }
+    .members { display:grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap:8px; margin-top:8px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    button { padding:10px 14px; border-radius:999px; border:none; font-size:1rem; }
+    .primary { background:#0066cc; color:#fff; }
+    .danger { background:#b00020; color:#fff; }
+    .member-card { border:1px solid #ccc; border-radius:8px; padding:8px; background:#fff; }
+    .member-card.dead { opacity:.5; }
+    .name { font-weight:600; }
+    .sub { font-size:.78rem; color:#777; }
+    .small { font-size:.88rem; color:#666; }
+  </style>
+</head>
+<body>
+  <h1>観戦モード</h1>
+
+  <div class="box">
+    <div class="small">あなたは退場しました。ゲームの進行を観戦できます。</div>
+    <div class="status" id="status">読み込み中...</div>
+  </div>
+
+  <div class="box" id="host-box" style="display:none;">
+    <div class="small">司会用の進行操作</div>
+    <div class="status" id="host-status"></div>
+    <div class="row" style="margin-top:8px;">
+      <button class="primary" id="host-resolve-night">夜明け処理を実行</button>
+      <button class="danger" id="host-resolve-day">処刑を確定</button>
+    </div>
+    <div class="status" id="host-result"></div>
+  </div>
+
+  <div class="box">
+    <div style="font-weight:600;">生存/死亡一覧</div>
+    <div id="members" class="members"></div>
+  </div>
+
+  <script src="/frontend/js/night_common.js"></script>
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const gameId = qs.get("game_id");
+    const playerId = qs.get("player_id");
+
+    setupAutoResultRedirect(gameId, playerId);
+
+    function jump(path) {
+      location.href = `/frontend/${path}?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
+    }
+
+    const statusEl = document.getElementById("status");
+    const membersEl = document.getElementById("members");
+    const hostBoxEl = document.getElementById("host-box");
+    const hostStatusEl = document.getElementById("host-status");
+    const hostResultEl = document.getElementById("host-result");
+    const hostResolveNightBtn = document.getElementById("host-resolve-night");
+    const hostResolveDayBtn = document.getElementById("host-resolve-day");
+
+    async function fetchGame() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
+      if (!res.ok) throw new Error(`game取得失敗(${res.status})`);
+      return await res.json();
+    }
+
+    async function fetchMe() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/me?player_id=${encodeURIComponent(playerId)}`);
+      if (!res.ok) throw new Error(`me取得失敗(${res.status})`);
+      return await res.json();
+    }
+
+    async function fetchMembers() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/members`);
+      if (!res.ok) throw new Error(`members取得失敗(${res.status})`);
+      return await res.json();
+    }
+
+    async function fetchNightActionsStatus() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/night_actions_status`);
+      if (!res.ok) throw new Error(`night_actions_status取得失敗(${res.status})`);
+      return await res.json();
+    }
+
+    async function resolveNight() {
+      hostResultEl.textContent = "";
+      try {
+        const g = await fetchGame();
+        const st = String(g.status || "").toUpperCase();
+        if (st !== "NIGHT") {
+          hostResultEl.textContent = `NIGHTではありません（現在：${st}）。`;
+          return;
+        }
+        const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/resolve_night_simple`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          hostResultEl.textContent = `夜明け処理に失敗しました (${res.status})`;
+          return;
+        }
+        hostResultEl.textContent = "夜明け処理を実行しました。";
+        await sync();
+      } catch (e) {
+        hostResultEl.textContent = "夜明け処理に失敗しました。";
+      }
+    }
+
+    async function resolveDay() {
+      hostResultEl.textContent = "";
+      try {
+        const g = await fetchGame();
+        const st = String(g.status || "").toUpperCase();
+        if (st !== "DAY_DISCUSSION") {
+          hostResultEl.textContent = `DAY_DISCUSSIONではありません（現在：${st}）。`;
+          return;
+        }
+        const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/resolve_day_simple`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requester_member_id: playerId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          hostResultEl.textContent = `処刑確定に失敗しました (${res.status})`;
+          return;
+        }
+        hostResultEl.textContent = "処刑を確定しました。";
+        await sync();
+      } catch (e) {
+        hostResultEl.textContent = "処刑確定に失敗しました。";
+      }
+    }
+
+    async function sync() {
+      if (!gameId || !playerId) {
+        statusEl.textContent = "game_id / player_id がURLにありません。";
+        return;
+      }
+      try {
+        const [g, members, me] = await Promise.all([fetchGame(), fetchMembers(), fetchMe()]);
+        const st = String(g.status || "").toUpperCase();
+        statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span>`;
+
+        if (st === "FINISHED" || st === "VILLAGE_WIN" || st === "WOLF_WIN") {
+          jump("result.html");
+          return;
+        }
+
+        if (me?.is_host) {
+          hostBoxEl.style.display = "";
+          if (st === "NIGHT") {
+            const actions = await fetchNightActionsStatus();
+            hostStatusEl.textContent =
+              `夜行動の進捗：人狼 ${actions.wolves_done}/${actions.wolves_total}` +
+              `・占い師 ${actions.seer_done}/${actions.seer_total}` +
+              `・騎士 ${actions.knight_done}/${actions.knight_total}` +
+              `（全完了: ${actions.all_done ? "はい" : "いいえ"}）`;
+            // 司会は死亡していても進行可能（未完了でも実行できる）
+            hostResolveNightBtn.disabled = false;
+            hostResolveNightBtn.title = actions.all_done ? "" : "未完了でも実行できます（強制）";
+            hostResolveDayBtn.disabled = true;
+            hostResolveDayBtn.title = "昼フェーズで実行できます";
+          } else if (st === "DAY_DISCUSSION") {
+            hostStatusEl.textContent = "昼フェーズ：処刑確定が可能です。";
+            hostResolveNightBtn.disabled = true;
+            hostResolveNightBtn.title = "夜フェーズで実行できます";
+            hostResolveDayBtn.disabled = false;
+            hostResolveDayBtn.title = "";
+          } else {
+            hostStatusEl.textContent = "";
+            hostResolveNightBtn.disabled = true;
+            hostResolveDayBtn.disabled = true;
+          }
+        }
+
+        membersEl.innerHTML = "";
+        members.forEach((m) => {
+          const card = document.createElement("div");
+          card.className = "member-card";
+          const alive = (m.alive !== false) && (m.is_alive !== false);
+          if (!alive) card.classList.add("dead");
+          const nameDiv = document.createElement("div");
+          nameDiv.className = "name";
+          nameDiv.textContent = m.display_name || m.name || "（名無し）";
+          const subDiv = document.createElement("div");
+          subDiv.className = "sub";
+          subDiv.textContent = alive ? "生存" : "死亡";
+          card.appendChild(nameDiv);
+          card.appendChild(subDiv);
+          membersEl.appendChild(card);
+        });
+      } catch (e) {
+        console.error(e);
+        statusEl.textContent = "状態取得に失敗しました。";
+      }
+    }
+
+    setInterval(sync, 2000);
+    sync();
+
+    hostResolveNightBtn.addEventListener("click", resolveNight);
+    hostResolveDayBtn.addEventListener("click", resolveDay);
+  </script>
+</body>
+</html>

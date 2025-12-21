@@ -108,6 +108,7 @@
     const voteBtn = document.getElementById("vote-btn");
     const resolveBtn = document.getElementById("resolve-day");
     const tallyBtn = document.getElementById("tally-btn");
+    const toNightBtn = document.getElementById("to-night");
 
     let me = null;
     let members = [];
@@ -140,6 +141,12 @@
     async function fetchMembers() {
       const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/members`);
       if (!res.ok) throw new Error(`members取得失敗(${res.status})`);
+      return await res.json();
+    }
+
+    async function fetchDayVoteStatus() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/day_vote_status`);
+      if (!res.ok) throw new Error(`day_vote_status取得失敗(${res.status})`);
       return await res.json();
     }
 
@@ -234,20 +241,45 @@
           tallyArea.dataset.tallyDay = String(tallyDayNo);
         }
 
-        me = await fetchMe();
-        members = await fetchMembers();
+        const [meData, membersData] = await Promise.all([fetchMe(), fetchMembers()]);
+        me = meData;
+        members = membersData;
 
         // 表示名
         const selfId = me?.player_id || me?.game_member_id;
         const meMember = members.find(x => x.id === selfId);
         meNameEl.textContent = meMember?.display_name || meMember?.name || "あなた";
+        const isAlive = (meMember?.alive !== false) && (meMember?.is_alive !== false);
+        if (!isAlive) {
+          jump("spectator.html");
+          return;
+        }
 
         const canVote = (st === "DAY_DISCUSSION");
         const isHost = !!me?.is_host;
+        let voteStatus = null;
+        if (canVote) {
+          try {
+            voteStatus = await fetchDayVoteStatus();
+          } catch (_) {
+            voteStatus = null;
+          }
+        }
+        const allVoted = !!voteStatus?.all_done;
         statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span> / 司会：${isHost ? "あなた" : "別の人"}`;
         voteBtn.disabled = !canVote;
-        resolveBtn.disabled = !canVote || !isHost;
-        resolveBtn.title = isHost ? "" : "司会のみ実行できます";
+        resolveBtn.disabled = !canVote || !isHost || !allVoted;
+        if (!isHost) {
+          resolveBtn.title = "司会のみ実行できます";
+        } else if (!canVote) {
+          resolveBtn.title = "DAY_DISCUSSIONのときのみ実行できます";
+        } else if (!allVoted) {
+          const voted = voteStatus?.voted_count ?? 0;
+          const total = voteStatus?.alive_total ?? 0;
+          resolveBtn.title = `投票完了待ち（${voted}/${total}）`;
+        } else {
+          resolveBtn.title = "";
+        }
         tallyBtn.disabled = false;
 
         if (st === "NIGHT") {
@@ -260,6 +292,11 @@
           tallyBtn.classList.add("primary");
           tallyBtn.classList.remove("ghost");
           tallyBtn.textContent = "集計を見る（結果確認）";
+          toNightBtn.classList.add("primary");
+          toNightBtn.classList.remove("ghost");
+          toNightBtn.textContent = "夜へ進む";
+          toNightBtn.disabled = !isAlive;
+          toNightBtn.title = isAlive ? "" : "死亡したプレイヤーは夜へ進めません";
         } else {
           voteStatusEl.textContent = canVote
             ? "対象を選んで投票してください。"
@@ -267,9 +304,15 @@
           tallyBtn.classList.remove("primary");
           tallyBtn.classList.add("ghost");
           tallyBtn.textContent = "集計を見る";
+          toNightBtn.classList.remove("primary");
+          toNightBtn.classList.add("ghost");
+          toNightBtn.textContent = "夜へ進む";
+          toNightBtn.disabled = true;
+          toNightBtn.title = "処刑確定後に押せます";
         }
 
         renderMembers(canVote);
+        await redirectIfFinished(gameId, playerId);
       } catch (e) {
         console.error(e);
         log(String(e), "error");

@@ -64,6 +64,21 @@
       return await res.json();
     }
 
+    async function fetchNightResult() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/night_result`);
+      if (!res.ok) throw new Error(`夜明け結果の取得に失敗しました (${res.status})`);
+      return await res.json();
+    }
+
+    function renderNightResult(data) {
+      const guarded = data.guarded_success ? "🛡️ 護衛成功（襲撃失敗）" : "🐺 襲撃が通った";
+      const victimName = data.victim?.display_name || null;
+      let msg = `${guarded}\n`;
+      if (victimName) msg += `今朝の犠牲者：${victimName}\n`;
+      else msg += `今朝の犠牲者：なし\n`;
+      resultEl.innerHTML = `<div class="success">${msg}</div>`;
+    }
+
     async function sync() {
       if (!gameId || !playerId) {
         statusEl.textContent = "game_id / player_id がURLにありません。";
@@ -74,12 +89,24 @@
         const st = String(g.status || "").toUpperCase();
         const isHost = !!me?.is_host;
         statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span> / 司会：${isHost ? "あなた" : "別の人"}`;
-        document.getElementById("resolve").disabled = !isHost;
-        document.getElementById("resolve").title = isHost ? "" : "司会のみ実行できます";
+        const resolveBtn = document.getElementById("resolve");
+        const toDayBtn = document.getElementById("to-day");
+        resolveBtn.disabled = !isHost || st !== "NIGHT";
+        resolveBtn.title = !isHost
+          ? "司会のみ実行できます"
+          : (st === "NIGHT" ? "" : "夜フェーズでのみ実行できます");
+        toDayBtn.disabled = st !== "DAY_DISCUSSION";
+        toDayBtn.title = st === "DAY_DISCUSSION" ? "" : "昼フェーズでのみ押せます";
 
         // もうDAYなら昼へ
-        if (st === "DAY_DISCUSSION") {
-          resultEl.innerHTML += `<div class="success">すでに昼（DAY_DISCUSSION）に進んでいます。</div>`;
+        if (st === "FINISHED" || st === "VILLAGE_WIN" || st === "WOLF_WIN") {
+          jump("result.html");
+          return;
+        } else if (st === "DAY_DISCUSSION") {
+          const nightResult = await fetchNightResult();
+          renderNightResult(nightResult);
+        } else if (st === "NIGHT") {
+          resultEl.innerHTML = `<div class="small">夜明け処理前です。司会が「夜明け処理を実行」を押してください。</div>`;
         }
       } catch (e) {
         console.error(e);
@@ -113,22 +140,16 @@
           return;
         }
 
-        // data の形：killed_member_id / victim / guarded_success / status / game_result など
-        const guarded = data.guarded_success ? "🛡️ 護衛成功（襲撃失敗）" : "🐺 襲撃が通った";
-        const victimName = data.victim?.display_name || data.victim?.name || null;
-
-        let msg = `${guarded}\n`;
-        if (victimName) msg += `今朝の犠牲者：${victimName}\n`;
-        else msg += `今朝の犠牲者：なし\n`;
-
-        if (data.status) msg += `次の状態：${data.status}\n`;
-        if (data.game_result?.result && data.game_result.result !== "ONGOING") {
-          msg += `🏁 ゲーム結果：${data.game_result.result}\n`;
-        }
-
-        resultEl.innerHTML = `<div class="success">${msg}</div>`;
+        renderNightResult({
+          guarded_success: !!data.guarded_success,
+          victim: data.victim,
+        });
 
         // 状態がDAY_DISCUSSIONに進んだら昼へ
+        if (data.game_result?.result && data.game_result.result !== "ONGOING") {
+          jump("result.html");
+          return;
+        }
         await sync();
       } catch (e) {
         console.error(e);

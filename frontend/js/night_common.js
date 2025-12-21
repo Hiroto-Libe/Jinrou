@@ -211,6 +211,10 @@
     try {
       safeSetStatus(config.texts.loadingMe || "プレイヤー情報を読み込み中...");
       me = await fetchMe(gameId, playerId);
+      if (me?.status === "dead") {
+        location.href = `/frontend/spectator.html?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
+        return;
+      }
 
       // 役職ミスマッチは最初から操作不可
       if (config.expectedRole && me.role !== config.expectedRole) {
@@ -307,7 +311,28 @@
     }
   }
 
-  global.JinrouNight = { initNightRolePage, setupHostNightPanel };
+  async function watchNightToMorning(gameId, playerId, opts = {}) {
+    const intervalMs = opts.intervalMs || 1500;
+    if (!gameId || !playerId) return;
+
+    setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/games/${encodeURIComponent(gameId)}`);
+        if (!res.ok) return;
+        const g = await res.json();
+        const st = String(g.status || "").toUpperCase();
+        if (st === "DAY_DISCUSSION") {
+          location.href = `/frontend/morning.html?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
+        } else if (st === "FINISHED" || st === "VILLAGE_WIN" || st === "WOLF_WIN") {
+          location.href = `/frontend/result.html?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
+        }
+      } catch (_) {
+        // ポーリング失敗は無視
+      }
+    }, intervalMs);
+  }
+
+  global.JinrouNight = { initNightRolePage, setupHostNightPanel, watchNightToMorning };
 })(window);
 
 // ===== Win/Lose auto redirect =====

@@ -25,6 +25,8 @@ from ...schemas.night import (
     WolfTallyItem,
     WolfTallyOut,
     NightActionsStatusOut,
+    NightResultOut,
+    NightResultVictimOut,
 )
 from ...schemas.day import (  # ★ 追加
     DayVoteCreate,
@@ -32,6 +34,7 @@ from ...schemas.day import (  # ★ 追加
     DayTallyItem,
     DayTallyOut,
     DayResolveRequest,
+    DayVoteStatusOut,
 )
 from ...schemas.seer import (
     SeerFirstWhiteOut,
@@ -805,6 +808,79 @@ def resolve_night_simple(
     }
 
 
+@router.get("/{game_id}/night_result", response_model=NightResultOut)
+def night_result(
+    game_id: str,
+    night_no: Optional[int] = None,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    夜明け結果の取得（読み取り専用）:
+    - 指定 night_no の狼投票を集計してターゲットを決定
+    - 騎士護衛があれば襲撃失敗
+    - DBを書き換えず、結果のみ返す
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if night_no is None:
+        night_no = getattr(game, "curr_night", 1)
+
+    votes: list[WolfVote] = (
+        db.query(WolfVote)
+        .filter(
+            WolfVote.game_id == game_id,
+            WolfVote.night_no == night_no,
+        )
+        .all()
+    )
+
+    if not votes:
+        return NightResultOut(
+            game_id=game_id,
+            night_no=night_no,
+            guarded_success=False,
+            victim=None,
+        )
+
+    points_by_target: dict[str, int] = {}
+    for v in votes:
+        pts = v.points_at_vote or 0
+        points_by_target[v.target_member_id] = points_by_target.get(
+            v.target_member_id, 0
+        ) + pts
+
+    targeted_member_id = max(points_by_target, key=points_by_target.get)
+
+    guard = (
+        db.query(KnightGuard)
+        .filter(
+            KnightGuard.game_id == game_id,
+            KnightGuard.night_no == night_no,
+            KnightGuard.target_member_id == targeted_member_id,
+        )
+        .one_or_none()
+    )
+
+    guarded_success = guard is not None
+    victim = None
+    if not guarded_success:
+        target = db.get(GameMember, targeted_member_id)
+        if target:
+            victim = NightResultVictimOut(
+                id=target.id,
+                display_name=target.display_name,
+            )
+
+    return NightResultOut(
+        game_id=game_id,
+        night_no=night_no,
+        guarded_success=guarded_success,
+        victim=victim,
+    )
+
+
 
 
 @router.get("/{game_id}/members", response_model=list[GameMemberOut])
@@ -980,6 +1056,48 @@ def day_tally(
     )
 
 
+@router.get("/{game_id}/day_vote_status", response_model=DayVoteStatusOut)
+def day_vote_status(
+    game_id: str,
+    day_no: Optional[int] = None,
+    db: Session = Depends(get_db_dep),
+):
+    """
+    昼投票の進捗（生存者の投票完了数）を返す。
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if day_no is None:
+        day_no = game.curr_day
+
+    alive_members = (
+        db.query(GameMember)
+        .filter(GameMember.game_id == game_id, GameMember.alive == True)
+        .all()
+    )
+    alive_ids = [m.id for m in alive_members]
+
+    voted_count = (
+        db.query(func.count(func.distinct(DayVote.voter_member_id)))
+        .filter(
+            DayVote.game_id == game_id,
+            DayVote.day_no == day_no,
+            DayVote.voter_member_id.in_(alive_ids),
+        )
+        .scalar()
+    ) or 0
+
+    return DayVoteStatusOut(
+        game_id=game_id,
+        day_no=day_no,
+        alive_total=len(alive_ids),
+        voted_count=int(voted_count),
+        all_done=int(voted_count) >= len(alive_ids),
+    )
+
+
 @router.post("/{game_id}/resolve_day_simple")
 def resolve_day_simple(
     game_id: str,
@@ -1018,6 +1136,26 @@ def resolve_day_simple(
         raise HTTPException(status_code=400, detail="Game is not in DAY_DISCUSSION phase")
 
     day_no = game.curr_day
+
+    alive_members = (
+        db.query(GameMember)
+        .filter(GameMember.game_id == game_id, GameMember.alive == True)
+        .all()
+    )
+    alive_ids = [m.id for m in alive_members]
+
+    voted_count = (
+        db.query(func.count(func.distinct(DayVote.voter_member_id)))
+        .filter(
+            DayVote.game_id == game_id,
+            DayVote.day_no == day_no,
+            DayVote.voter_member_id.in_(alive_ids),
+        )
+        .scalar()
+    ) or 0
+
+    if int(voted_count) < len(alive_ids):
+        raise HTTPException(status_code=400, detail="Not all players have voted")
 
     rows = (
         db.query(

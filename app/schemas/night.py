@@ -51,3 +51,15 @@ class NightActionsStatusOut(BaseModel):
     knight_total: int
     knight_done: int
     all_done: bool
+
+
+class NightResultVictimOut(BaseModel):
+    id: str
+    display_name: str | None = None
+
+
+class NightResultOut(BaseModel):
+    game_id: str
+    night_no: int
+    guarded_success: bool
+    victim: NightResultVictimOut | None = None

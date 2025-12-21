@@ -35,6 +35,7 @@
 
     <div class="row">
       <button class="ghost" id="refresh">状態を更新</button>
+      <button class="primary" id="wait-done">待機した</button>
       <button class="primary" id="go-morning">朝の結果（夜明け処理）へ</button>
       <button class="danger" id="go-night">（誤操作対策）夜画面へ戻す</button>
     </div>
@@ -55,6 +56,24 @@
     const logEl = document.getElementById("log");
     const goMorningBtn = document.getElementById("go-morning");
     const hostStatusEl = document.getElementById("host-status");
+    const waitDoneBtn = document.getElementById("wait-done");
+
+    function waitDoneKey(nightNo) {
+      return `jinrou_wait_done_${gameId}_${playerId}_${nightNo}`;
+    }
+
+    function applyWaitDoneUI(done, nightNo) {
+      if (!waitDoneBtn) return;
+      if (done) {
+        waitDoneBtn.disabled = true;
+        waitDoneBtn.textContent = "待機完了";
+        waitDoneBtn.title = nightNo ? `夜${nightNo}は完了しました` : "この夜は完了しました";
+      } else {
+        waitDoneBtn.disabled = false;
+        waitDoneBtn.textContent = "待機した";
+        waitDoneBtn.title = "";
+      }
+    }
 
     function log(msg, type) {
       const div = document.createElement("div");
@@ -95,18 +114,30 @@
         const st = String(g.status || "").toUpperCase();
         statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span>`;
         const isHost = !!me?.is_host;
+        if (me?.status === "dead") {
+          jump("spectator.html");
+          return;
+        }
         goMorningBtn.disabled = !isHost;
         goMorningBtn.title = isHost ? "" : "司会のみ実行できます";
         hostStatusEl.textContent = isHost
           ? `夜行動の進捗：人狼 ${actions.wolves_done}/${actions.wolves_total}・占い師 ${actions.seer_done}/${actions.seer_total}・騎士 ${actions.knight_done}/${actions.knight_total}（全完了: ${actions.all_done ? "はい" : "いいえ"}）`
           : "";
 
-        // 夜が終わってDAY_DISCUSSIONになっていたら昼へ
-        if (st === "DAY_DISCUSSION") jump("day.html");
-        // FINISHEDなら結果へ（今はrole_confirmへ逃がす）
+        if (st === "NIGHT") {
+          const nightNo = g.curr_night || 1;
+          const done = localStorage.getItem(waitDoneKey(nightNo)) === "1";
+          applyWaitDoneUI(done, nightNo);
+        } else {
+          applyWaitDoneUI(false, null);
+        }
+
+        // 夜が終わってDAY_DISCUSSIONになっていたら朝結果へ
+        if (st === "DAY_DISCUSSION") jump("morning.html");
+        // FINISHEDなら結果へ
         if (st === "FINISHED" || st === "VILLAGE_WIN" || st === "WOLF_WIN") {
           log("ゲームが終了しています。", "success");
-          jump("role_confirm.html");
+          jump("result.html");
         }
       } catch (e) {
         console.error(e);
@@ -119,6 +150,22 @@
     setInterval(sync, 1500);
 
     document.getElementById("refresh").addEventListener("click", sync);
+    waitDoneBtn.addEventListener("click", async () => {
+      try {
+        const g = await fetchGame();
+        const st = String(g.status || "").toUpperCase();
+        if (st !== "NIGHT") {
+          log("夜フェーズではありません。", "error");
+          return;
+        }
+        const nightNo = g.curr_night || 1;
+        localStorage.setItem(waitDoneKey(nightNo), "1");
+        applyWaitDoneUI(true, nightNo);
+        log("待機しました。", "success");
+      } catch (e) {
+        log("待機の記録に失敗しました。", "error");
+      }
+    });
     document.getElementById("go-morning").addEventListener("click", () => jump("morning.html"));
     document.getElementById("go-night").addEventListener("click", () => jump("role_confirm.html"));
 
