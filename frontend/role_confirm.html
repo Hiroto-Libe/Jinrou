@@ -173,6 +173,13 @@
 
   okBtn.addEventListener("click", decideNext);
   init();
+
+  // ★追加：待機中も勝敗確定を監視して結果へ
+  if (gameId && playerId && typeof redirectIfFinished === "function") {
+    setInterval(() => {
+      redirectIfFinished(gameId, playerId).catch(() => {});
+    }, 2000);
+  }
 </script>
 </body>
 </html>

@@ -40,3 +40,14 @@ class DayVoteStatusOut(BaseModel):
     alive_total: int
     voted_count: int
     all_done: bool
+    vote_round: int = 0
+    is_runoff: bool = False
+    candidate_ids: list[str] = []
+
+
+class DayVoteStateOut(BaseModel):
+    game_id: str
+    day_no: int
+    vote_round: int
+    is_runoff: bool
+    candidate_ids: list[str]

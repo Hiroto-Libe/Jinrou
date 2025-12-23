@@ -64,6 +64,12 @@
       return await res.json();
     }
 
+    async function fetchJudge() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/judge`);
+      if (!res.ok) throw new Error(`judge取得失敗(${res.status})`);
+      return await res.json();
+    }
+
     async function fetchNightResult() {
       const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/night_result`);
       if (!res.ok) throw new Error(`夜明け結果の取得に失敗しました (${res.status})`);
@@ -85,8 +91,9 @@
         return;
       }
       try {
-        const [g, me] = await Promise.all([fetchGame(), fetchMe()]);
+        const [g, me, judge] = await Promise.all([fetchGame(), fetchMe(), fetchJudge()]);
         const st = String(g.status || "").toUpperCase();
+        const jr = String(judge?.result || "").toUpperCase();
         const isHost = !!me?.is_host;
         statusEl.innerHTML = `ゲーム状態：<span class="pill">${st}</span> / 司会：${isHost ? "あなた" : "別の人"}`;
         const resolveBtn = document.getElementById("resolve");
@@ -95,11 +102,28 @@
         resolveBtn.title = !isHost
           ? "司会のみ実行できます"
           : (st === "NIGHT" ? "" : "夜フェーズでのみ実行できます");
-        toDayBtn.disabled = st !== "DAY_DISCUSSION";
-        toDayBtn.title = st === "DAY_DISCUSSION" ? "" : "昼フェーズでのみ押せます";
+        const finished = (jr === "VILLAGE_WIN" || jr === "WOLF_WIN");
+        toDayBtn.disabled = st !== "DAY_DISCUSSION" || finished;
+        toDayBtn.title = finished
+          ? "勝敗が決着したため結果画面へ移動します"
+          : (st === "DAY_DISCUSSION" ? "" : "昼フェーズでのみ押せます");
+        if (resolveBtn.disabled) {
+          resolveBtn.classList.remove("primary");
+          resolveBtn.classList.add("ghost");
+        } else {
+          resolveBtn.classList.add("primary");
+          resolveBtn.classList.remove("ghost");
+        }
+        if (toDayBtn.disabled) {
+          toDayBtn.classList.remove("primary");
+          toDayBtn.classList.add("ghost");
+        } else {
+          toDayBtn.classList.add("primary");
+          toDayBtn.classList.remove("ghost");
+        }
 
         // もうDAYなら昼へ
-        if (st === "FINISHED" || st === "VILLAGE_WIN" || st === "WOLF_WIN") {
+        if (finished || st === "FINISHED" || st === "VILLAGE_WIN" || st === "WOLF_WIN") {
           jump("result.html");
           return;
         } else if (st === "DAY_DISCUSSION") {

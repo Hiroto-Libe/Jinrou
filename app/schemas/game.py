@@ -55,3 +55,13 @@ class GameMemberOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RevealRolesRequest(BaseModel):
+    requester_member_id: str
+    enabled: bool
+
+
+class RevealRolesOut(BaseModel):
+    game_id: str
+    enabled: bool

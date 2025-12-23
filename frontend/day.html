@@ -150,10 +150,11 @@
       return await res.json();
     }
 
-    function renderMembers(canVote) {
+    function renderMembers(canVote, candidateIds = []) {
       membersEl.innerHTML = "";
       const selfId = me?.player_id || me?.game_member_id;
       let foundSelected = false;
+      const isRunoff = Array.isArray(candidateIds) && candidateIds.length > 0;
 
       members.forEach(m => {
         const card = document.createElement("div");
@@ -176,8 +177,10 @@
         const meIsWolf = (me?.role === "wolf" || me?.role === "werewolf");
         const isWolfAlly = m.role_type === "WEREWOLF";
 
+        const isRunoffCandidate = !isRunoff || candidateIds.includes(m.id);
         if (!alive) subDiv.textContent = "死亡";
         else if (isSelf) subDiv.textContent = "あなた（自投票は可/不可は運用次第）";
+        else if (!isRunoffCandidate) subDiv.textContent = "決選投票の対象外";
         else if (meIsWolf && isWolfAlly) subDiv.textContent = "同じ人狼には投票できません";
         else subDiv.textContent = "タップして投票対象に選択";
 
@@ -185,7 +188,7 @@
         card.appendChild(subDiv);
 
         // 仕様：死者は投票対象にできない。投票可能状態でなければクリック不可
-        if (!alive || !canVote || (meIsWolf && isWolfAlly)) {
+        if (!alive || !canVote || !isRunoffCandidate || (meIsWolf && isWolfAlly)) {
           card.style.pointerEvents = "none";
           card.style.opacity = alive ? 0.85 : 0.4;
           if (meIsWolf && isWolfAlly) card.classList.add("disabled");
@@ -311,7 +314,14 @@
           toNightBtn.title = "処刑確定後に押せます";
         }
 
-        renderMembers(canVote);
+        if (voteStatus?.is_runoff) {
+          voteStatusEl.textContent = "決選投票：同数トップの候補から選んで投票してください。";
+          tallyBtn.textContent = "集計を見る";
+          tallyBtn.classList.remove("primary");
+          tallyBtn.classList.add("ghost");
+        }
+
+        renderMembers(canVote, voteStatus?.candidate_ids || []);
         await redirectIfFinished(gameId, playerId);
       } catch (e) {
         console.error(e);
@@ -411,6 +421,13 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           log(`処刑確定に失敗しました(${res.status}): ${JSON.stringify(data)}`, "error");
+          return;
+        }
+
+        if (data.status === "RUNOFF") {
+          log("同数のため決選投票に移行しました。", "success");
+          await sync();
+          await showTally();
           return;
         }
 

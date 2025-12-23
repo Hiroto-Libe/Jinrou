@@ -109,14 +109,14 @@
     <div class="big" id="headline">読み込み中...</div>
     <div class="muted" id="reason"></div>
 
-    <div class="row" style="margin-top:10px; justify-content:space-between;">
+    <div class="row" id="reveal-row" style="margin-top:10px; justify-content:space-between;">
       <div class="toggle">
         <label>
           <input type="checkbox" id="reveal-toggle" />
           <span>役職を公開する（司会用）</span>
         </label>
       </div>
-      <div class="warn">※ 周囲の人に見せる直前にON</div>
+      <div class="warn" id="reveal-warn">※ 周囲の人に見せる直前にON</div>
     </div>
     <div class="hint" id="reveal-hint">決着後にのみ有効になります。</div>
   </div>
@@ -139,14 +139,7 @@
     <div class="log" id="log"></div>
   </div>
 
-  <div class="host-banner" id="hostBanner">
-    <div class="title">🎉 決着しました（司会用）</div>
-    <div class="desc">このまま役職を公開しますか？</div>
-    <div class="actions">
-      <button class="btn ghost" id="bannerLater">あとで</button>
-      <button class="btn primary" id="bannerReveal">公開する（ON）</button>
-    </div>
-  </div>
+  <!-- 司会向けの公開ポップアップは使用しない -->
 
   <script>
     const qs = new URLSearchParams(location.search);
@@ -169,16 +162,13 @@
 
     const revealToggle = document.getElementById("reveal-toggle");
     const revealHint = document.getElementById("reveal-hint");
+    const revealRow = document.getElementById("reveal-row");
+    const revealWarn = document.getElementById("reveal-warn");
 
     const revealBar = document.getElementById("revealBar");
 
-    const hostBanner = document.getElementById("hostBanner");
-    const bannerReveal = document.getElementById("bannerReveal");
-    const bannerLater = document.getElementById("bannerLater");
-
-    const REVEAL_KEY = "jinrou_reveal_roles";
-    const BANNER_KEY = "jinrou_reveal_banner_shown";
-    revealToggle.checked = (localStorage.getItem(REVEAL_KEY) === "1");
+    revealToggle.checked = false;
+    let isHost = false;
 
 
     function log(msg) {
@@ -193,6 +183,18 @@
 
     async function fetchJson(url) {
       const res = await fetch(url);
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, status: res.status, data };
+    }
+
+    async function fetchMe() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/me?player_id=${encodeURIComponent(playerId)}`);
+      if (!res.ok) throw new Error(`me取得失敗(${res.status})`);
+      return await res.json();
+    }
+
+    async function fetchRevealRoles() {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/reveal_roles`);
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };
     }
@@ -217,7 +219,6 @@
       if (!finished) {
         if (revealToggle.checked) {
           revealToggle.checked = false;
-          localStorage.setItem(REVEAL_KEY, "0");
           updateRevealBar();
           updateScrollLock(false); // ★追加：強制OFF時もスクロール解除
         }
@@ -229,31 +230,54 @@
       }
     }
 
-    function maybeShowHostBanner(prevJr, currentJr) {
-      if (sessionStorage.getItem(BANNER_KEY) === "1") return;
-      if (!isFinished(currentJr)) return;
-      if (isFinished(prevJr)) return;
-      hostBanner.style.display = "block";
-      sessionStorage.setItem(BANNER_KEY, "1");
-    }
+    async function setReveal(on, opts = {}) {
+      const fromServer = !!opts.fromServer;
+      const doLog = (opts.log !== false);
+      if (!fromServer && !isHost) return;
 
-    function hideHostBanner() {
-      hostBanner.style.display = "none";
-    }
-
-    function setReveal(on) {
       revealToggle.checked = !!on;
-      localStorage.setItem(REVEAL_KEY, on ? "1" : "0");
       updateRevealBar();
       updateScrollLock(on); // ★追加：公開中はスクロール固定
 
       if (lastMembers) renderMembers(lastMembers, lastJudge);
-      log(on ? "役職公開：ON（司会用）" : "役職公開：OFF");
+      if (doLog) log(on ? "役職公開：ON（司会用）" : "役職公開：OFF");
+
+      if (!fromServer) {
+        try {
+          const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/reveal_roles`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              requester_member_id: playerId,
+              enabled: !!on,
+            }),
+          });
+          if (!res.ok) {
+            log("役職公開の更新に失敗しました。", "error");
+          }
+        } catch (e) {
+          log("役職公開の更新に失敗しました。", "error");
+        }
+      }
     }
 
     // ★追加：スクロール固定のON/OFF
     function updateScrollLock(on) {
     document.body.classList.toggle("no-scroll", on);
+    }
+
+    function applyHostOnlyUI(isHost) {
+      if (isHost) {
+        revealRow.style.display = "flex";
+        revealWarn.style.display = "block";
+        revealHint.style.display = "block";
+        return;
+      }
+
+      revealToggle.disabled = true;
+      revealRow.style.display = "none";
+      revealWarn.style.display = "none";
+      revealHint.style.display = "none";
     }
 
     function renderHeadline(judge, game) {
@@ -355,6 +379,7 @@
     let lastGame = null;
     let lastJudge = null;
     let lastMembers = null;
+    let lastMe = null;
     let prevJudgeResult = "";
 
     async function sync() {
@@ -365,18 +390,20 @@
         return;
       }
 
-      const gameRes = await fetchJson(`/api/games/${encodeURIComponent(gameId)}`);
+      const [gameRes, judgeRes, memRes, me, revealRes] = await Promise.all([
+        fetchJson(`/api/games/${encodeURIComponent(gameId)}`),
+        fetchJson(`/api/games/${encodeURIComponent(gameId)}/judge`),
+        fetchJson(`/api/games/${encodeURIComponent(gameId)}/members`),
+        fetchMe().catch(() => null),
+        fetchRevealRoles().catch(() => ({ ok: false, data: {} })),
+      ]);
       if (!gameRes.ok) {
         log(`game取得失敗(${gameRes.status}): ${JSON.stringify(gameRes.data)}`);
         return;
       }
-
-      const judgeRes = await fetchJson(`/api/games/${encodeURIComponent(gameId)}/judge`);
       if (!judgeRes.ok) {
         log(`judge取得失敗(${judgeRes.status}): ${JSON.stringify(judgeRes.data)}`);
       }
-
-      const memRes = await fetchJson(`/api/games/${encodeURIComponent(gameId)}/members`);
       if (!memRes.ok) {
         log(`members取得失敗(${memRes.status}): ${JSON.stringify(memRes.data)}`);
       }
@@ -384,14 +411,20 @@
       lastGame = gameRes.data;
       lastJudge = judgeRes.data;
       lastMembers = memRes.data;
+      lastMe = me;
+      isHost = !!lastMe?.is_host;
+      applyHostOnlyUI(isHost);
 
       const currentJr = renderHeadline(lastJudge, lastGame);
       renderMembers(lastMembers, lastJudge);
 
-      maybeShowHostBanner(prevJudgeResult, currentJr);
       prevJudgeResult = currentJr;
 
       updateRevealBar(); // ★起動直後/更新時の反映
+
+      if (revealRes.ok && typeof revealRes.data?.enabled === "boolean") {
+        await setReveal(revealRes.data.enabled, { fromServer: true, log: false });
+      }
 
       if (isFinished(currentJr)) {
         log("決着済みです。「昼へ」「夜へ」は無効化されています。必要なら役職公開トグルをONにしてください。");
@@ -402,25 +435,20 @@
 
     // トグル操作（決着済みの時のみON可）
     revealToggle.addEventListener("change", () => {
+      if (!lastMe?.is_host) {
+        revealToggle.checked = false;
+        updateRevealBar();
+        log("司会のみ操作できます。");
+        return;
+      }
       const jr = normalizeResult(lastJudge?.result);
       if (!isFinished(jr)) {
         revealToggle.checked = false;
-        localStorage.setItem(REVEAL_KEY, "0");
         updateRevealBar();
         log("まだ決着していないため、役職公開はできません。");
         return;
       }
       setReveal(revealToggle.checked);
-    });
-
-    // バナー操作
-    bannerReveal.addEventListener("click", () => {
-      setReveal(true);
-      hideHostBanner();
-    });
-    bannerLater.addEventListener("click", () => {
-      hideHostBanner();
-      log("必要になったら「役職を公開する（司会用）」をONにしてください。");
     });
 
     document.getElementById("refresh").addEventListener("click", sync);
@@ -433,9 +461,10 @@
 
     // ★追加：赤帯タップで即OFF（ワンタップ終了）
     revealBar.addEventListener("click", () => {
-    if (!revealToggle.checked) return; // すでにOFFなら何もしない
-    setReveal(false);
-    log("役職公開：赤帯タップでOFFにしました");
+      if (!revealToggle.checked) return; // すでにOFFなら何もしない
+      if (!isHost) return;
+      setReveal(false);
+      log("役職公開：赤帯タップでOFFにしました");
     });
 
   </script>

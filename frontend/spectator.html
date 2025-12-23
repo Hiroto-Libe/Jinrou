@@ -208,6 +208,13 @@
     setInterval(sync, 2000);
     sync();
 
+    // ★追加：勝敗確定の監視（観戦者も結果へ）
+    if (gameId && playerId && typeof redirectIfFinished === "function") {
+      setInterval(() => {
+        redirectIfFinished(gameId, playerId).catch(() => {});
+      }, 2000);
+    }
+
     hostResolveNightBtn.addEventListener("click", resolveNight);
     hostResolveDayBtn.addEventListener("click", resolveDay);
   </script>

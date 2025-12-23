@@ -18,7 +18,13 @@ from ...models.game import (
     MediumInspect,   # ★ 追加
 )
 from ...models.knight import KnightGuard
-from ...schemas.game import GameCreate, GameOut, GameMemberOut
+from ...schemas.game import (
+    GameCreate,
+    GameOut,
+    GameMemberOut,
+    RevealRolesRequest,
+    RevealRolesOut,
+)
 from ...schemas.night import (
     WolfVoteCreate,
     WolfVoteOut,
@@ -35,6 +41,7 @@ from ...schemas.day import (  # ★ 追加
     DayTallyOut,
     DayResolveRequest,
     DayVoteStatusOut,
+    DayVoteStateOut,
 )
 from ...schemas.seer import (
     SeerFirstWhiteOut,
@@ -50,6 +57,8 @@ from ...schemas.game_member import GameMemberMe
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/games", tags=["games"])
+_REVEAL_ROLES_STATE: dict[str, bool] = {}
+_RUNOFF_STATE: dict[str, dict] = {}
 
 
 def _fetch_unique_game_members(game_id: str, db: Session) -> list[GameMember]:
@@ -474,6 +483,11 @@ def day_vote(
         raise HTTPException(status_code=400, detail="Werewolf cannot vote for another werewolf")
 
     day_no = game.curr_day
+    runoff = _RUNOFF_STATE.get(game_id)
+    if runoff and runoff.get("day_no") == day_no:
+        candidate_ids = runoff.get("candidate_ids") or []
+        if candidate_ids and target.id not in candidate_ids:
+            raise HTTPException(status_code=400, detail="Target is not in runoff candidates")
 
     # 既存投票があれば上書き
     existing: DayVote | None = (
@@ -738,8 +752,10 @@ def resolve_night_simple(
             v.target_member_id, 0
         ) + pts
 
-    # 一番ポイントが高いターゲットを決定
-    targeted_member_id = max(points_by_target, key=points_by_target.get)
+    # 一番ポイントが高いターゲットを決定（同点ならランダム）
+    max_points = max(points_by_target.values())
+    top_targets = [tid for tid, pts in points_by_target.items() if pts == max_points]
+    targeted_member_id = random.choice(top_targets)
 
     # 騎士護衛があるかどうか
     guard = (
@@ -851,7 +867,9 @@ def night_result(
             v.target_member_id, 0
         ) + pts
 
-    targeted_member_id = max(points_by_target, key=points_by_target.get)
+    max_points = max(points_by_target.values())
+    top_targets = [tid for tid, pts in points_by_target.items() if pts == max_points]
+    targeted_member_id = random.choice(top_targets)
 
     guard = (
         db.query(KnightGuard)
@@ -920,6 +938,47 @@ def list_game_members(
         )
 
     return result
+
+
+@router.get("/{game_id}/reveal_roles", response_model=RevealRolesOut)
+def get_reveal_roles(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    return RevealRolesOut(
+        game_id=game_id,
+        enabled=bool(_REVEAL_ROLES_STATE.get(game_id, False)),
+    )
+
+
+@router.post("/{game_id}/reveal_roles", response_model=RevealRolesOut)
+def set_reveal_roles(
+    game_id: str,
+    data: RevealRolesRequest,
+    db: Session = Depends(get_db_dep),
+):
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    requester = db.get(GameMember, data.requester_member_id)
+    if not requester or requester.game_id != game_id:
+        raise HTTPException(status_code=404, detail="Requester member not found")
+
+    requester_room_member = db.get(RoomMember, requester.room_member_id)
+    if not requester_room_member or not requester_room_member.is_host:
+        raise HTTPException(status_code=403, detail="Host only")
+
+    _REVEAL_ROLES_STATE[game_id] = bool(data.enabled)
+
+    return RevealRolesOut(
+        game_id=game_id,
+        enabled=bool(_REVEAL_ROLES_STATE.get(game_id, False)),
+    )
 
 
 # -----------------------------
@@ -1089,12 +1148,42 @@ def day_vote_status(
         .scalar()
     ) or 0
 
+    runoff = _RUNOFF_STATE.get(game_id)
+    is_runoff = bool(runoff and runoff.get("day_no") == day_no)
+    candidate_ids = runoff.get("candidate_ids") if is_runoff else []
+
     return DayVoteStatusOut(
         game_id=game_id,
         day_no=day_no,
         alive_total=len(alive_ids),
         voted_count=int(voted_count),
         all_done=int(voted_count) >= len(alive_ids),
+        vote_round=int(getattr(game, "vote_round", 0) or 0),
+        is_runoff=is_runoff,
+        candidate_ids=candidate_ids or [],
+    )
+
+
+@router.get("/{game_id}/day_vote_state", response_model=DayVoteStateOut)
+def day_vote_state(
+    game_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    day_no = game.curr_day
+    runoff = _RUNOFF_STATE.get(game_id)
+    is_runoff = bool(runoff and runoff.get("day_no") == day_no)
+    candidate_ids = runoff.get("candidate_ids") if is_runoff else []
+
+    return DayVoteStateOut(
+        game_id=game_id,
+        day_no=day_no,
+        vote_round=int(getattr(game, "vote_round", 0) or 0),
+        is_runoff=is_runoff,
+        candidate_ids=candidate_ids or [],
     )
 
 
@@ -1175,11 +1264,40 @@ def resolve_day_simple(
 
     max_votes = max(int(r.vote_count) for r in rows)
     candidates = [r for r in rows if int(r.vote_count) == max_votes]
-    chosen = random.choice(candidates)
+
+    if len(candidates) > 1:
+        _RUNOFF_STATE[game_id] = {
+            "day_no": day_no,
+            "candidate_ids": [r.target_member_id for r in candidates],
+        }
+        if hasattr(game, "vote_round"):
+            game.vote_round = (game.vote_round or 0) + 1
+        # 決選投票に備えてこの日の投票をクリア
+        db.query(DayVote).filter(
+            DayVote.game_id == game_id,
+            DayVote.day_no == day_no,
+        ).delete()
+        db.add(game)
+        db.commit()
+
+        return {
+            "game_id": game.id,
+            "day_no": day_no,
+            "status": "RUNOFF",
+            "victim": None,
+            "tally": None,
+            "candidates": [r.target_member_id for r in candidates],
+        }
+
+    chosen = candidates[0]
 
     victim = db.get(GameMember, chosen.target_member_id)
     if not victim:
         raise HTTPException(status_code=500, detail="Victim GameMember not found")
+
+    # 決選状態があれば解除
+    if _RUNOFF_STATE.get(game_id, {}).get("day_no") == day_no:
+        _RUNOFF_STATE.pop(game_id, None)
 
     # 昼の処刑反映
     victim.alive = False
