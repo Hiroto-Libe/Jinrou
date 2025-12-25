@@ -1018,46 +1018,19 @@ def decide_roles(n: int) -> list[tuple[str, str]]:
             "MADMAN",
         ]
 
-    elif n == 8:
-        # 狼2 / 占1 / 霊1 / 騎1 / 村2 / 狂1
-        base = [
-            "WEREWOLF", "WEREWOLF",
-            "SEER",
-            "MEDIUM",
-            "KNIGHT",
-            "VILLAGER", "VILLAGER",
-            "MADMAN",
-        ]
-
-    elif n == 9:
-        # 狼2 / 占1 / 霊1 / 騎1 / 村3 / 狂1
-        base = [
-            "WEREWOLF", "WEREWOLF",
-            "SEER",
-            "MEDIUM",
-            "KNIGHT",
-            "VILLAGER", "VILLAGER", "VILLAGER",
-            "MADMAN",
-        ]
-
-    elif n == 10:
-        # 狼2 / 占1 / 霊1 / 騎1 / 村4 / 狂1
-        base = [
-            "WEREWOLF", "WEREWOLF",
-            "SEER",
-            "MEDIUM",
-            "KNIGHT",
-            "VILLAGER", "VILLAGER", "VILLAGER", "VILLAGER",
-            "MADMAN",
-        ]
-
     else:
-        # デフォルト:
-        #  - 狼 = max(2, n // 4)
-        #  - SEER / MEDIUM / KNIGHT / MADMAN を1人ずつ
-        #  - 残りは VILLAGER
-        wolves = max(2, n // 4)
-        base = ["WEREWOLF"] * wolves + ["SEER", "MEDIUM", "KNIGHT", "MADMAN"]
+        # 役職数は固定（人数が増えても増やさない）
+        # 7人以上: 狼2 / 占1 / 騎1 / 霊1 / 狂1 / 村1（残りは村人）
+        # 6人:     狼2 / 占1 / 騎1 / 狂1 / 村1
+        base = [
+            "WEREWOLF", "WEREWOLF",
+            "SEER",
+            "KNIGHT",
+            "MADMAN",
+            "VILLAGER",
+        ]
+        if n >= 7:
+            base.append("MEDIUM")
         while len(base) < n:
             base.append("VILLAGER")
 

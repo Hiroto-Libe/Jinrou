@@ -9,7 +9,8 @@ from ...api.deps import get_db_dep
 from ...db import Base, engine, ensure_room_members_schema
 from ...models.room import Room, RoomRoster, RoomMember
 from ...models.profile import Profile
-from ...models.game import GameMember
+from ...models.game import Game, GameMember, DayVote, WolfVote, SeerInspect
+from ...models.knight import KnightGuard
 from ...schemas.game import GameCreate
 from .games import create_game, start_game
 
@@ -21,6 +22,19 @@ class DebugSeedRequest(BaseModel):
     player_names: list[str] | None = None
     player_count: int | None = None
     start_game: bool = True
+
+
+class DebugGameMemberUpdate(BaseModel):
+    member_id: str
+    role_type: str | None = None
+    team: str | None = None
+    alive: bool | None = None
+
+
+class DebugSetGameMembersRequest(BaseModel):
+    game_id: str
+    updates: list[DebugGameMemberUpdate]
+    reset_votes: bool = True
 
 
 @router.post("/reset_and_seed")
@@ -120,4 +134,61 @@ def reset_and_seed(
         "game_id": game_id,
         "roster": roster_items,
         "game_members": game_members,
+    }
+
+
+@router.post("/set_game_members")
+def set_game_members(
+    data: DebugSetGameMembersRequest,
+    db: Session = Depends(get_db_dep),
+):
+    game = db.get(Game, data.game_id)
+    if not game:
+        return {"detail": "Game not found"}
+
+    for upd in data.updates:
+        gm = db.get(GameMember, upd.member_id)
+        if not gm or gm.game_id != data.game_id:
+            return {"detail": "GameMember not found"}
+
+        if upd.role_type is not None:
+            gm.role_type = upd.role_type
+            if upd.team is None:
+                gm.team = "WOLF" if upd.role_type in ("WEREWOLF", "MADMAN") else "VILLAGE"
+        if upd.team is not None:
+            gm.team = upd.team
+        if upd.alive is not None:
+            gm.alive = upd.alive
+        db.add(gm)
+
+    if data.reset_votes:
+        db.query(DayVote).filter(DayVote.game_id == data.game_id).delete()
+        db.query(WolfVote).filter(WolfVote.game_id == data.game_id).delete()
+        db.query(SeerInspect).filter(SeerInspect.game_id == data.game_id).delete()
+        db.query(KnightGuard).filter(KnightGuard.game_id == data.game_id).delete()
+        if hasattr(game, "vote_round"):
+            game.vote_round = 0
+        if hasattr(game, "tie_streak"):
+            game.tie_streak = 0
+        db.add(game)
+
+    db.commit()
+
+    members = (
+        db.query(GameMember)
+        .filter(GameMember.game_id == data.game_id)
+        .order_by(GameMember.order_no.asc())
+        .all()
+    )
+    return {
+        "game_id": game.id,
+        "updated": [
+            {
+                "id": m.id,
+                "role_type": m.role_type,
+                "team": m.team,
+                "alive": m.alive,
+            }
+            for m in members
+        ],
     }
