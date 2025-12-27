@@ -57,6 +57,10 @@ class GameMemberOut(BaseModel):
         from_attributes = True
 
 
+class StartGameRequest(BaseModel):
+    requester_member_id: str | None = None
+
+
 class RevealRolesRequest(BaseModel):
     requester_member_id: str
     enabled: bool

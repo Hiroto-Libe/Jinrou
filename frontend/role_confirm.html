@@ -7,9 +7,12 @@
   <style>
     body {
       margin: 0;
-      font-family: system-ui, sans-serif;
-      background: radial-gradient(circle at top, #1f2933, #050816);
-      color: #f9fafb;
+      font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+      background:
+        radial-gradient(900px 600px at 20% -10%, rgba(255,255,255,0.08), rgba(0,0,0,0)),
+        radial-gradient(700px 500px at 90% 0%, rgba(0,0,0,0.35), rgba(0,0,0,0)),
+        linear-gradient(160deg, #2b1f18, #120c0a 65%, #0b0706);
+      color: #f8f3e6;
       display: flex;
       justify-content: center;
       align-items: center;
@@ -18,7 +21,8 @@
     .card {
       width: 90%;
       max-width: 420px;
-      background: rgba(15, 23, 42, 0.92);
+      background: rgba(30, 22, 16, 0.92);
+      border: 1px solid rgba(148, 125, 88, 0.6);
       border-radius: 16px;
       padding: 28px 20px 24px;
       text-align: center;
@@ -27,18 +31,23 @@
     .title { font-size: 20px; letter-spacing: .15em; opacity:.85; margin-bottom: 12px; }
     .role-label { font-size: 14px; opacity:.7; }
     .role-name { font-size: 32px; font-weight:700; margin: 8px 0; }
+    .role-icon {
+      font-size: 28px;
+      margin-top: 6px;
+    }
     .role-tag {
       display:inline-block; padding:4px 10px; border-radius:999px;
-      border:1px solid rgba(148,163,184,.6); font-size:12px; margin-bottom:14px;
+      border:1px solid rgba(148, 125, 88, 0.7); font-size:12px; margin-bottom:14px;
     }
     .description { font-size:14px; line-height:1.6; opacity:.85; margin-bottom:20px; }
     .warning { font-size:12px; color:#fbbf24; margin-bottom:16px; }
+    .note { font-size:12px; color:#94a3b8; margin: 8px 0 12px; }
     button {
       width:100%; border:none; border-radius:999px;
       padding:12px 0; font-size:16px; font-weight:600;
       letter-spacing:.1em; cursor:pointer;
-      background: linear-gradient(135deg,#06b6d4,#3b82f6);
-      color:#0b1120;
+      background: linear-gradient(135deg,#d2a45c,#9a6a2f);
+      color:#2b1f18;
     }
     button:disabled { opacity:.4; cursor:default; }
     .countdown { font-size:11px; opacity:.75; margin-top:6px; }
@@ -51,9 +60,11 @@
 
   <div class="role-label">あなたの役職</div>
   <div class="role-name" id="roleName">...</div>
+  <div class="role-icon" id="roleIcon">🕯️</div>
   <div class="role-tag" id="teamTag"></div>
 
   <div class="description" id="roleDesc">読み込み中…</div>
+  <div class="note" id="host-note"></div>
 
   <div class="warning">
     ※ この画面は周囲の人に見られないよう注意してください
@@ -80,19 +91,21 @@
   }
 
   const roleNameEl = document.getElementById("roleName");
+  const roleIconEl = document.getElementById("roleIcon");
   const roleDescEl = document.getElementById("roleDesc");
   const teamTagEl  = document.getElementById("teamTag");
   const okBtn = document.getElementById("okBtn");
   const errorEl = document.getElementById("error");
   const countdownEl = document.getElementById("countdown");
+  const hostNoteEl = document.getElementById("host-note");
 
   const roleInfo = {
-    villager: { name:"村人", team:"村人陣営", desc:"特別な能力はありません。議論と投票で人狼を見つけましょう。" },
-    seer: { name:"占い師", team:"村人陣営", desc:"毎晩1人を占い、人狼かどうかを知ることができます。" },
-    knight: { name:"騎士", team:"村人陣営", desc:"毎晩1人を護衛し、人狼の襲撃から守れます。" },
-    werewolf: { name:"人狼", team:"人狼陣営", desc:"仲間と協力し、毎晩1人を襲撃します。" },
-    wolf: { name:"人狼", team:"人狼陣営", desc:"仲間と協力し、毎晩1人を襲撃します。" },
-    madman: { name:"狂人", team:"人狼陣営", desc:"村人を混乱させ、人狼を勝利に導きます。" },
+    villager: { icon:"🕯️", name:"村人", team:"村人陣営", desc:"特別な能力はありません。議論と投票で人狼を見つけましょう。" },
+    seer: { icon:"🔮", name:"占い師", team:"村人陣営", desc:"毎晩1人を占い、人狼かどうかを知ることができます。" },
+    knight: { icon:"🛡️", name:"騎士", team:"村人陣営", desc:"毎晩1人を護衛し、人狼の襲撃から守れます。" },
+    werewolf: { icon:"🐺", name:"人狼", team:"人狼陣営", desc:"仲間と協力し、毎晩1人を襲撃します。" },
+    wolf: { icon:"🐺", name:"人狼", team:"人狼陣営", desc:"仲間と協力し、毎晩1人を襲撃します。" },
+    madman: { icon:"🃏", name:"狂人", team:"人狼陣営", desc:"村人を混乱させ、人狼を勝利に導きます。" },
   };
 
   async function fetchMe() {
@@ -150,10 +163,18 @@
 
     try {
       const me = await fetchMe();
-      const info = roleInfo[me.role] || { name: me.role, team:"不明", desc:"説明なし" };
+      const info = roleInfo[me.role] || { icon:"🕯️", name: me.role, team:"不明", desc:"説明なし" };
       roleNameEl.textContent = info.name;
+      roleIconEl.textContent = info.icon;
       teamTagEl.textContent = info.team;
       roleDescEl.textContent = info.desc;
+      if (!me?.is_host) {
+        hostNoteEl.textContent = "進行操作は司会が担当します";
+        hostNoteEl.style.display = "block";
+      } else {
+        hostNoteEl.textContent = "";
+        hostNoteEl.style.display = "none";
+      }
     } catch (e) {
       errorEl.textContent = "役職情報の取得に失敗しました";
     }

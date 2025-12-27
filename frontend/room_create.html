@@ -2,13 +2,37 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>Jinrou | ルーム作成（司会用）</title>
+  <title>Jinrou | ルーム作成（参加者）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: system-ui, sans-serif; margin: 16px; background:#f5f5f5; }
+    :root {
+      --castle-bg-1: #f1e7d6;
+      --castle-bg-2: #d2c0a0;
+      --castle-bg-3: #b59c78;
+      --castle-ink: #2b2b2b;
+      --castle-panel: #f8f1e3;
+      --castle-border: #d1c0a2;
+      --castle-shadow: rgba(27, 20, 10, 0.15);
+    }
+    body {
+      font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+      margin: 16px;
+      color: var(--castle-ink);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(255,255,255,0.55), rgba(255,255,255,0)),
+        radial-gradient(900px 500px at 100% 0%, rgba(0,0,0,0.08), rgba(0,0,0,0)),
+        linear-gradient(160deg, var(--castle-bg-1), var(--castle-bg-2) 60%, var(--castle-bg-3));
+    }
     h1 { margin:0 0 6px; font-size:1.25rem; }
     .muted { color:#666; font-size:.92rem; }
-    .box { background:#fff; border:1px solid #ddd; border-radius:12px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,.04); margin:12px 0; }
+    .box {
+      background: var(--castle-panel);
+      border: 1px solid var(--castle-border);
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 6px 16px var(--castle-shadow);
+      margin: 12px 0;
+    }
     .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
     .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; font-size:.82rem; color:#333; }
     button { padding:10px 14px; border-radius:999px; border:none; font-size:1rem; cursor:pointer; }
@@ -30,12 +54,12 @@
     table { width:100%; border-collapse:collapse; margin-top:8px; }
     th, td { border-bottom:1px solid #eee; padding:8px; text-align:left; font-size:.95rem; }
     th { color:#666; font-weight:600; }
-    input { padding:10px 12px; border:1px solid #ddd; border-radius:10px; font-size:1rem; min-width: 260px; flex: 1; }
+    input, select { padding:10px 12px; border:1px solid #ddd; border-radius:10px; font-size:1rem; min-width: 260px; flex: 1; }
   </style>
 </head>
 <body>
-  <h1>🐺 ルーム作成（司会用）</h1>
-  <div class="muted">Roomを作って参加URLを配布 → rosterが揃ったら確定 → Game作成/開始 → 各自の role_confirm URL を配布</div>
+  <h1>🐺 ルーム作成（参加者）</h1>
+  <div class="muted">Roomを作って参加URLを配布 → rosterが揃ったら確定 → Game作成/開始 → 各自の role_confirm URL を配布（Startを押した人がGM）</div>
 
   <div class="box">
     <div style="font-weight:700;">ルーム名（任意）</div>
@@ -89,6 +113,14 @@
         <button class="ghost" id="assignRolesBtn" disabled>役職割り当て（role_assign）</button>
       </div>
     </div>
+    <div style="margin-top:8px;">
+      <div class="small">ゲーム開始者（GM）を選択してください</div>
+      <div class="row" style="margin-top:6px;">
+        <select id="starterSelect" disabled>
+          <option value="">（GameMembers取得後に選択）</option>
+        </select>
+      </div>
+    </div>
   </div>
 
   <div class="box">
@@ -120,7 +152,11 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ room_id: roomId }),
     }),
-    startGame: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}/start`, { method: "POST" }),
+    startGame: (gameId, requesterMemberId) => fetch(`/api/games/${encodeURIComponent(gameId)}/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requester_member_id: requesterMemberId }),
+    }),
     assignRoles: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}/role_assign`, { method: "POST" }),
     listGameMembers: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}/members`),
   };
@@ -130,6 +166,7 @@
     roomName: "jinrou_host_room_name",
     gameId: "jinrou_host_game_id",
     bulkDone: "jinrou_host_bulk_done",
+    startMemberId: "jinrou_host_start_member_id",
   };
 
   const state = {
@@ -137,6 +174,7 @@
     roomName: localStorage.getItem(LS.roomName) || "",
     gameId: localStorage.getItem(LS.gameId) || "",
     bulkDone: localStorage.getItem(LS.bulkDone) === "1",
+    startMemberId: localStorage.getItem(LS.startMemberId) || "",
     roster: [],
     gameMembers: [],
   };
@@ -161,6 +199,7 @@
   const createGameBtn = document.getElementById("createGameBtn");
   const startGameBtn = document.getElementById("startGameBtn");
   const assignRolesBtn = document.getElementById("assignRolesBtn");
+  const starterSelect = document.getElementById("starterSelect");
 
   const clearBtn = document.getElementById("clearBtn");
 
@@ -184,8 +223,31 @@
   }
 
   window.copyText = async (text) => {
-    try { await navigator.clipboard.writeText(text); log("コピーしました"); }
-    catch(e){ err("コピーに失敗しました（ブラウザ権限の可能性）"); }
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        log("コピーしました");
+        return;
+      }
+      throw new Error("clipboard unavailable");
+    } catch (e) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.top = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (ok) {
+          log("コピーしました");
+          return;
+        }
+      } catch (_) {}
+      err("コピーに失敗しました（ブラウザ権限の可能性）");
+    }
   };
   window.openTab = (url) => window.open(url, "_blank");
 
@@ -211,8 +273,15 @@
     bulkBtn.className = canBulk ? "primary" : "ghost";
 
     createGameBtn.disabled = !hasRoom;
-    startGameBtn.disabled = !hasGame;
+    const memberIds = new Set((state.gameMembers || []).map((m) => m.id));
+    if (state.startMemberId && !memberIds.has(state.startMemberId)) {
+      state.startMemberId = "";
+      localStorage.removeItem(LS.startMemberId);
+    }
+
+    startGameBtn.disabled = !hasGame || !state.startMemberId;
     assignRolesBtn.disabled = !hasGame;
+    starterSelect.disabled = !hasGame || memberIds.size === 0;
 
     if (!hasRoom) {
       joinArea.innerHTML = `<div class="small">Room作成後に参加URLが表示されます。</div>`;
@@ -276,6 +345,14 @@
       }).join("");
       playersArea.innerHTML = blocks;
     }
+
+    const startOptions = (state.gameMembers || []).map((gm, idx) => {
+      const name = gm.display_name || gm.name || `player${idx+1}`;
+      const selected = gm.id === state.startMemberId ? "selected" : "";
+      return `<option value="${escapeHtml(gm.id)}" ${selected}>${escapeHtml(name)}</option>`;
+    }).join("");
+    starterSelect.innerHTML = `<option value="">（開始者を選択）</option>${startOptions}`;
+    starterSelect.value = state.startMemberId || "";
   }
 
   async function refreshRoster(){
@@ -291,6 +368,10 @@
     const r = await toJson(await API.listGameMembers(state.gameId));
     if (!r.ok) { err(`game members取得失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
     state.gameMembers = Array.isArray(r.data) ? r.data : (r.data.items || []);
+    if (!state.startMemberId && state.gameMembers.length > 0) {
+      state.startMemberId = state.gameMembers[0].id;
+      localStorage.setItem(LS.startMemberId, state.startMemberId);
+    }
     render();
   }
 
@@ -322,11 +403,13 @@
     localStorage.removeItem(LS.roomName);
     localStorage.removeItem(LS.gameId);
     localStorage.removeItem(LS.bulkDone);
+    localStorage.removeItem(LS.startMemberId);
 
     state.roomId = "";
     state.roomName = "";
     state.gameId = "";
     state.bulkDone = false;
+    state.startMemberId = "";
     state.roster = [];
     state.gameMembers = [];
 
@@ -355,10 +438,12 @@
     // 新Room作成でgame側はリセット（混乱防止）
     state.gameId = "";
     state.bulkDone = false;
+    state.startMemberId = "";
     state.roster = [];
     state.gameMembers = [];
     localStorage.removeItem(LS.gameId);
     localStorage.removeItem(LS.bulkDone);
+    localStorage.removeItem(LS.startMemberId);
 
     // もしサーバがroom_nameを保存して返すなら回収
     await pullRoomNameIfPossible(roomId);
@@ -405,8 +490,9 @@
   startGameBtn.addEventListener("click", async () => {
     clearMsg();
     if (!state.gameId) return;
+    if (!state.startMemberId) { err("ゲーム開始者（GM）を選択してください"); return; }
     setState("Start中...");
-    const r = await toJson(await API.startGame(state.gameId));
+    const r = await toJson(await API.startGame(state.gameId, state.startMemberId));
     if (!r.ok) { setState("エラー"); err(`Start失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
     setState("Start OK（URL配布）");
     await refreshGameMembers();
@@ -439,3 +525,12 @@
 </script>
 </body>
 </html>
+  starterSelect.addEventListener("change", () => {
+    state.startMemberId = starterSelect.value || "";
+    if (state.startMemberId) {
+      localStorage.setItem(LS.startMemberId, state.startMemberId);
+    } else {
+      localStorage.removeItem(LS.startMemberId);
+    }
+    render();
+  });

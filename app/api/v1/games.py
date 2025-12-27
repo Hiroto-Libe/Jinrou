@@ -1,6 +1,6 @@
 # app/api/v1/games.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import uuid
@@ -22,6 +22,7 @@ from ...schemas.game import (
     GameCreate,
     GameOut,
     GameMemberOut,
+    StartGameRequest,
     RevealRolesRequest,
     RevealRolesOut,
 )
@@ -289,12 +290,37 @@ def get_game(
 @router.post("/{game_id}/start", response_model=GameOut)
 def start_game(
     game_id: str,
+    payload: StartGameRequest | None = Body(None),
     db: Session = Depends(get_db_dep),
 ):
     # ゲーム取得
     game = db.get(Game, game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
+
+    # すでに開始済みなら 400
+    # → status ではなく started フラグで判定する
+    if getattr(game, "started", False):
+        raise HTTPException(status_code=400, detail="Game already started")
+
+    if payload and payload.requester_member_id:
+        requester = (
+            db.query(GameMember)
+            .filter(
+                GameMember.id == payload.requester_member_id,
+                GameMember.game_id == game_id,
+            )
+            .first()
+        )
+        if not requester:
+            raise HTTPException(status_code=400, detail="Requester member not found")
+        db.query(RoomMember).filter(
+            RoomMember.room_id == game.room_id,
+        ).update({RoomMember.is_host: False})
+        db.query(RoomMember).filter(
+            RoomMember.id == requester.room_member_id,
+        ).update({RoomMember.is_host: True})
+        db.flush()
 
     # ★ ここから追加（司会チェック）
     host = (
@@ -308,11 +334,6 @@ def start_game(
     if not host:
         raise HTTPException(status_code=400, detail="Host player not found")
     # ★ ここまで追加
-
-    # すでに開始済みなら 400
-    # → status ではなく started フラグで判定する
-    if getattr(game, "started", False):
-        raise HTTPException(status_code=400, detail="Game already started")
 
     # 参加メンバー取得（GameMember）
     members = _fetch_unique_game_members(game_id, db)
@@ -1104,12 +1125,8 @@ def day_vote_status(
     if day_no is None:
         day_no = game.curr_day
 
-    alive_members = (
-        db.query(GameMember)
-        .filter(GameMember.game_id == game_id, GameMember.alive == True)
-        .all()
-    )
-    alive_ids = [m.id for m in alive_members]
+    members = _fetch_unique_game_members(game_id, db)
+    alive_ids = [m.id for m in members if m.alive]
 
     voted_count = (
         db.query(func.count(func.distinct(DayVote.voter_member_id)))

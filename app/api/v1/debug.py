@@ -107,7 +107,7 @@ def reset_and_seed(
     if data.start_game:
         game = create_game(GameCreate(room_id=room.id), db)
         game_id = game.id
-        start_game(game_id, db)
+        start_game(game_id, payload=None, db=db)
 
     # GameMembers を返す（start_game 後に作成済みの想定）
     members = (

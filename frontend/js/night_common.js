@@ -281,6 +281,7 @@
   async function setupHostNightPanel(gameId, playerId, opts = {}) {
     const statusEl = document.getElementById(opts.statusId || "host-status");
     const buttonEl = document.getElementById(opts.buttonId || "host-morning");
+    const noteEl = document.getElementById(opts.noteId || "host-note");
     if (!statusEl || !buttonEl) return;
 
     try {
@@ -294,7 +295,15 @@
         statusEl.textContent = "";
         buttonEl.disabled = true;
         buttonEl.style.display = "none";
+        if (noteEl) {
+          noteEl.textContent = opts.noteText || "夜明け処理は司会が行います";
+          noteEl.style.display = "block";
+        }
         return;
+      }
+      if (noteEl) {
+        noteEl.textContent = "";
+        noteEl.style.display = "none";
       }
 
       statusEl.textContent =

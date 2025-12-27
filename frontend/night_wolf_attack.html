@@ -7,14 +7,14 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: #050816;
-      --panel: #111827;
-      --accent: #f97316;
-      --accent-soft: rgba(249,115,22,0.1);
-      --accent-strong: rgba(249,115,22,0.25);
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --danger: #fca5a5;
+      --bg: #0b0706;
+      --panel: #1c1510;
+      --accent: #c08b3d;
+      --accent-soft: rgba(192,139,61,0.12);
+      --accent-strong: rgba(192,139,61,0.26);
+      --text: #f1e7d6;
+      --muted: #c0b19a;
+      --danger: #f6c2a1;
     }
 
     * { box-sizing: border-box; }
@@ -22,8 +22,11 @@
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: radial-gradient(circle at top, #1e293b 0, #020617 45%, #020617 100%);
+      font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+      background:
+        radial-gradient(900px 600px at 20% -10%, rgba(255,255,255,0.08), rgba(0,0,0,0)),
+        radial-gradient(700px 500px at 90% 0%, rgba(0,0,0,0.4), rgba(0,0,0,0)),
+        linear-gradient(160deg, #2b1f18, #120c0a 65%, var(--bg));
       color: var(--text);
       display: flex;
       justify-content: center;
@@ -33,10 +36,10 @@
     .container {
       width: 100%;
       max-width: 960px;
-      background: linear-gradient(135deg, rgba(248,250,252,0.08), rgba(15,23,42,0.98));
+      background: linear-gradient(135deg, rgba(210,164,92,0.08), rgba(18,12,10,0.95));
       border-radius: 18px;
-      box-shadow: 0 22px 60px rgba(15,23,42,0.8);
-      border: 1px solid rgba(148,163,184,0.2);
+      box-shadow: 0 22px 60px rgba(0,0,0,0.7);
+      border: 1px solid rgba(170,138,94,0.25);
       padding: 16px;
       display: flex;
       flex-direction: column;
@@ -112,9 +115,9 @@
     }
 
     .panel {
-      background: rgba(15,23,42,0.90);
+      background: rgba(28, 21, 16, 0.92);
       border-radius: 14px;
-      border: 1px solid rgba(148,163,184,0.35);
+      border: 1px solid rgba(170,138,94,0.35);
       padding: 10px 10px 12px;
       display: flex;
       flex-direction: column;
@@ -373,6 +376,7 @@
         <div class="footer-note">
           ※ 実装時はサーバー側の夜処理ロジックと連携します。
         </div>
+        <div class="footer-note" id="host-note"></div>
         <div class="footer-note" id="host-status"></div>
         <button class="attack-button" id="host-morning" style="display:none; margin-top:8px;">朝の結果へ</button>
       </section>
@@ -594,11 +598,15 @@
         JinrouNight.setupHostNightPanel(game_id, player_id, {
           statusId: "host-status",
           buttonId: "host-morning",
+          noteId: "host-note",
+          noteText: "夜明け処理は司会が行います",
         });
         setInterval(() => {
           JinrouNight.setupHostNightPanel(game_id, player_id, {
             statusId: "host-status",
             buttonId: "host-morning",
+            noteId: "host-note",
+            noteText: "夜明け処理は司会が行います",
           });
         }, 2000);
       }

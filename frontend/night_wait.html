@@ -5,9 +5,32 @@
   <title>夜フェーズ - 待機</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: system-ui, sans-serif; margin: 16px; background:#f5f5f5; }
+    :root {
+      --castle-bg-1: #f1e7d6;
+      --castle-bg-2: #d2c0a0;
+      --castle-bg-3: #b59c78;
+      --castle-ink: #2b2b2b;
+      --castle-panel: #f8f1e3;
+      --castle-border: #d1c0a2;
+      --castle-shadow: rgba(27, 20, 10, 0.15);
+    }
+    body {
+      font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+      margin: 16px;
+      color: var(--castle-ink);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(255,255,255,0.55), rgba(255,255,255,0)),
+        radial-gradient(900px 500px at 100% 0%, rgba(0,0,0,0.08), rgba(0,0,0,0)),
+        linear-gradient(160deg, var(--castle-bg-1), var(--castle-bg-2) 60%, var(--castle-bg-3));
+    }
     h1 { font-size: 1.4rem; margin: 0 0 8px; }
-    .box { background:#fff; border:1px solid #ddd; border-radius:12px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+    .box {
+      background: var(--castle-panel);
+      border: 1px solid var(--castle-border);
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 6px 16px var(--castle-shadow);
+    }
     .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
     button { padding:10px 14px; border-radius:999px; border:none; font-size:1rem; }
     .primary { background:#0066cc; color:#fff; }
@@ -18,6 +41,7 @@
     .log .error { color:#b00020; }
     .log .success { color:#006400; }
     .small { font-size:.88rem; color:#666; }
+    .note { font-size:.88rem; color:#666; margin-top:10px; }
     .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; font-size:.82rem; color:#333; }
   </style>
 </head>
@@ -29,6 +53,7 @@
       村人 / 狂人など「夜のアクションがない」役職用の待機画面です。<br>
       夜明け処理（朝の結果反映）は、司会（ホスト）が実行してください。
     </div>
+    <div class="note" id="host-note"></div>
 
     <div class="status" id="status">読み込み中...</div>
     <div class="small" id="host-status"></div>
@@ -56,6 +81,7 @@
     const logEl = document.getElementById("log");
     const goMorningBtn = document.getElementById("go-morning");
     const hostStatusEl = document.getElementById("host-status");
+    const hostNoteEl = document.getElementById("host-note");
     const waitDoneBtn = document.getElementById("wait-done");
 
     function waitDoneKey(nightNo) {
@@ -117,6 +143,13 @@
         if (me?.status === "dead") {
           jump("spectator.html");
           return;
+        }
+        if (!isHost) {
+          hostNoteEl.textContent = "夜の進行（夜明け処理）は司会が行います";
+          hostNoteEl.style.display = "block";
+        } else {
+          hostNoteEl.textContent = "";
+          hostNoteEl.style.display = "none";
         }
         goMorningBtn.disabled = !isHost;
         goMorningBtn.title = isHost ? "" : "司会のみ実行できます";
