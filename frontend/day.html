@@ -35,6 +35,14 @@
     .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
     .status { margin-top:6px; color:#444; }
     .note { margin-top:6px; color:#666; font-size:.88rem; }
+    .banner {
+      margin-top:8px;
+      padding:8px 10px;
+      border-radius:10px;
+      background: #efe2c9;
+      border: 1px solid #d7c2a2;
+      font-size:.9rem;
+    }
     .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; font-size:.82rem; color:#333; }
 
     .members {
@@ -81,6 +89,7 @@
           <div>あなた：<strong id="me-name">（読み込み中）</strong></div>
           <div class="status" id="status">読み込み中...</div>
           <div class="note" id="host-note"></div>
+          <div class="banner" id="runoff-note" style="display:none;"></div>
         </div>
         <div class="row">
           <button class="ghost" id="refresh">更新</button>
@@ -125,6 +134,7 @@
 
     const statusEl = document.getElementById("status");
     const hostNoteEl = document.getElementById("host-note");
+    const runoffNoteEl = document.getElementById("runoff-note");
     const meNameEl = document.getElementById("me-name");
     const voteStatusEl = document.getElementById("vote-status");
     const membersEl = document.getElementById("members");
@@ -353,6 +363,13 @@
           tallyBtn.textContent = "集計を見る";
           tallyBtn.classList.remove("primary");
           tallyBtn.classList.add("ghost");
+          if (runoffNoteEl) {
+            runoffNoteEl.textContent = "決選投票に移行しました。候補者から再投票してください。";
+            runoffNoteEl.style.display = "block";
+          }
+        } else if (runoffNoteEl) {
+          runoffNoteEl.textContent = "";
+          runoffNoteEl.style.display = "none";
         }
 
         renderMembers(canVote, voteStatus?.candidate_ids || []);
