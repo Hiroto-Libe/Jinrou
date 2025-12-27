@@ -1,21 +1,20 @@
-# Jinrou - Web 人狼ゲーム（FastAPI）
+﻿# Jinrou - Web 人狼ゲーム（FastAPI）
 
 本プロジェクトは **FastAPI + SQLite + SQLAlchemy + Pydantic v2** を用いて構築した  
-「複数人がスマホから参加できる Web 人狼ゲーム」です。
-
-UI は現在モック（HTML/CSS/JS）を作成中で、  
-最終的にはロールごとに異なる画面をスマホ上で表示できる形式を目指しています。
+「複数人がスマホから参加できる Web 人狼ゲーム」です。  
+UI は HTML/CSS/Vanilla JS の実装版で、**役職ごとに画面が分かれます**。
 
 ---
 
 # 🚀 特徴
 
 - **役職ごとに見える画面が異なる Web 人狼アプリ**
-- バックエンドは **REST API（FastAPI）** 完成済み
-- ゲームロジック（昼/夜フェーズ、勝敗判定）も実装済み
-- **全 56 テストが PASS**
-- ローカル同一ルームで、各参加者が **自分のスマホ**から操作する設計
-- 今後 UI を React / Next.js などへ拡張することも可能
+- **URLベース参加（認証なし）**で、同一ルームを複数端末から操作
+- GM（司会）は **Start を押した参加者**（司会は死亡しても操作可能）
+- 昼は投票 → 処刑、**同数トップは決選投票**を繰り返す
+- 夜は役職行動 → 司会が夜明け処理 → 朝結果表示
+- **役職公開は司会がトグルで共有**（結果画面）
+- スモークテスト `scripts/smoke_flow.py` で一括確認可能
 
 ---
 
@@ -29,175 +28,135 @@ UI は現在モック（HTML/CSS/JS）を作成中で、
 | ORM | SQLAlchemy |
 | モデル / Validation | Pydantic v2 |
 | テスト | pytest |
-| その他 | Uvicorn, HTTPX（テスト）, UUID |
+| その他 | Uvicorn, HTTPX, UUID |
 
 ---
 
-# 🔧 セットアップ
+# 🔧 起動方法（ローカル）
 
 ```bash
-git clone https://github.com/hiroto/jinrou.git
-cd jinrou
-
 python -m venv .venv
 source .venv/bin/activate
 
-pip install -r requirements.txt
+# 必要なパッケージをインストール
+pip install fastapi uvicorn sqlalchemy pydantic httpx pytest
 
 uvicorn app.main:app --reload
 ```
 
-# 📚 API 仕様（概要）
+---
 
-※ 詳細なリクエスト/レスポンスは `app/api` を参照。
+# 📱 スマホからアクセスする場合
 
-## 1. ルーム関連
-- `POST /rooms/`  
-  ルーム作成
+PC をサーバとして使う場合は `--host 0.0.0.0` で起動します。
 
-- `GET /rooms/`  
-  ルーム一覧取得
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0
+```
 
-- `POST /rooms/{room_id}/join`  
-  指定ルームにプレイヤー参加
+Mac のローカルIP確認：
+```bash
+ipconfig getifaddr en0
+```
 
-
-## 2. ゲーム開始
-- `POST /games/{room_id}/start`  
-  ルームのメンバーを元にゲームを開始し、役職を自動割り当て
-
-
-## 3. 昼フェーズ
-- `POST /games/{game_id}/day/vote`  
-  昼フェーズの投票を送信
-
-- `POST /games/{game_id}/day/resolve`  
-  昼フェーズの投票結果を集計し、処刑者を確定
-
-
-## 4. 夜フェーズ
-- `POST /games/{game_id}/night/wolf/attack`  
-  人狼が襲撃対象を選択
-
-- `POST /games/{game_id}/night/seer/inspect`  
-  占い師が占い対象を選択
-
-- `POST /games/{game_id}/night/knight/guard`  
-  騎士が護衛対象を選択  
-  ※デフォルト設定では自己護衛は不可
-
-- `POST /games/{game_id}/night/resolve`  
-  夜フェーズの行動結果をまとめて処理する
-
-
-## 5. 勝敗判定
-- `POST /games/{game_id}/judge`  
-  ゲームの勝敗を判定する。
-
-  ### 判定基準
-  - **村人陣営勝利**：生存狼が 0  
-  - **狼陣営勝利**：生存狼 + 生存狂人 ≥ 生存村人  
-
-  ※ 狂人は占い・霊媒では「白」だが、勝敗では狼側として扱う。
-
+スマホからは `http://<PCのIP>:8000` にアクセスします。
 
 ---
 
-# 🧠 ゲームロジック仕様
-
-## ✔ 昼フェーズ
-- 全プレイヤーが 1 人に投票
-- 最多得票者を処刑
-- 処刑者が人狼だったかどうかの情報はログに記録される
-
-
-## ✔ 夜フェーズ
-- **人狼**：1 人を襲撃  
-- **占い師**：誰かを占う（人狼かどうかを判定）  
-- **騎士**：1 人を護衛（自己護衛は不可 / 連続護衛は未対応）  
-- **村人・狂人・死亡者**：操作なし（待機画面）
-
-夜の行動がそろったら `night/resolve` でまとめて処理する。
-
-
-## ✔ 勝敗ロジック
-- 村人勝利：生存狼が 0  
-- 狼側勝利：生存狼 + 生存狂人 ≥ 生存村人  
-- 狂人は「村から見ると人間判定」だが、勝敗では狼側
-
-
----
-
-# 🖥 UI 実装方針
-
-このアプリは **1 人 1 台のスマホからアクセスして遊ぶ Web 人狼** を目的としている。
-
-### UI の基本方針
-- **自分の役職に応じた画面だけが見える**
-- 他プレイヤーの行動は表示されない（完全分離 UI）
-- 昼 / 夜で画面レイアウトは全く別
-- **タップ 1 回で行動が完了**するシンプルな UX
-- タイマー（例：昼 5:00）を画面上部に表示
-- ログ入力は UI では行わず、サーバ側で記録
-- スマホ最適化された HTML モックで UI を作成中
-
-
----
-
-# 🗂 画面一覧（UI モック）
+# 🗂 画面一覧（実装）
 
 | 画面 | ファイル名 | 説明 |
-|------|------------|--------|
-| ルーム一覧 | `room_list.html` | 参加可能なルームの一覧 |
-| ルーム参加 | `room_join.html` | ニックネーム入力・参加 |
-| 役職確認 | `role_confirm.html` | 自分の役職を確認 |
-| 昼フェーズ | `day_mock.html` | 投票 + 結果確認 |
-| 夜（人狼） | `night_wolf_attack_mock.html` | 襲撃対象を選択 |
-| 夜（占い師） | `night_seer_mock.html` | 占い対象を選択 |
-| 夜（騎士） | `night_knight_guard_mock.html` | 護衛対象を選択 |
-| 夜（待機） | `night_wait_mock.html` | 操作不要の役職向け待機画面 |
+|------|------------|------|
+| ルーム作成（参加者） | `frontend/room_create.html` | Room作成・参加URL共有・GM選択・Start |
+| ルーム参加 | `frontend/room_join.html` | 名前登録（roster） |
+| 役職確認 | `frontend/role_confirm.html` | 自分の役職確認 → 各フェーズへ遷移 |
+| 昼フェーズ | `frontend/day.html` | 投票・集計・処刑確定 |
+| 朝フェーズ | `frontend/morning.html` | 夜明け結果の表示 |
+| 夜（人狼） | `frontend/night_wolf_attack.html` | 襲撃投票 |
+| 夜（占い師） | `frontend/seer_night.html` | 占い |
+| 夜（騎士） | `frontend/knight_night.html` | 護衛 |
+| 夜（待機） | `frontend/night_wait.html` | 村人/狂人などの待機 |
+| 結果 | `frontend/result.html` | 勝敗表示・役職公開 |
+| 観戦 | `frontend/spectator.html` | 死亡者/観戦者画面 |
 
+補助・デバッグ：
+| 画面 | ファイル名 | 説明 |
+|------|------------|------|
+| ホスト統合画面 | `frontend/room_host.html` | デバッグ初期化・URL配布 |
+| 旧ロビー | `frontend/lobby.html` | 旧フロー（参考） |
 
 ---
 
-# 🔀 画面遷移図（Player Flow）
+# 🧠 ゲーム仕様（概要）
 
-下図は **1 人のプレイヤー視点** の UI 遷移である。
+## 役職構成（固定）
+- 6人：狼2 / 占1 / 騎1 / 狂1 / 村1
+- 7人以上：狼2 / 占1 / 騎1 / 狂1 / 霊1 / 村1 + 追加分は村人
 
-```mermaid
-flowchart TD
+## 昼フェーズ
+- 生存者全員が投票
+- 最多得票者を処刑
+- 同数トップの場合は**決選投票**（同数トップのみ対象）
+- 司会のみ処刑確定を実行
 
-    A[トップ / ルーム一覧<br/>room_list] --> B[ルーム参加<br/>room_join]
-    B --> C[ニックネーム入力 / 参加確定]
+## 夜フェーズ
+- **人狼**：襲撃投票（同数はランダム）
+- **占い師**：占い
+- **騎士**：護衛
+- **村人/狂人**：待機
+- 司会が夜明け処理を実行
 
-    C --> D[待機画面<br/>「全員の参加を待っています」]
-    D --> E[役職配布完了]
+---
 
-    E --> F[役職確認画面<br/>role_confirm.html]
-    F --> G{ゲームフェーズ分岐}
+# 📚 API（主要）
 
-    %% 昼フェーズ
-    G --> H[昼フェーズ<br/>day_mock.html]
-    H --> I[投票完了]
-    I --> J[処刑結果表示]
+※ 詳細は `app/api/v1` を参照。
 
-    J --> K{勝敗が決まった？}
-    K -->|決着| R[ゲーム結果画面]
-    K -->|続行| L[夜フェーズ開始]
+## Rooms
+- `POST /api/rooms`
+- `GET /api/rooms/{room_id}`
+- `GET /api/rooms/{room_id}/roster`
+- `POST /api/rooms/{room_id}/roster`
+- `POST /api/rooms/{room_id}/members/bulk_from_roster`
 
-    %% 夜フェーズ（役職ごと）
-    L --> M{あなたの役職は？}
+## Games
+- `POST /api/games`
+- `POST /api/games/{game_id}/start`（`requester_member_id` を指定）
+- `GET /api/games/{game_id}/members`
+- `GET /api/games/{game_id}/me?player_id=...`
 
-    M -->|人狼| N[人狼襲撃画面<br/>night_wolf_attack_mock.html]
-    M -->|占い師| O[占い師占い画面<br/>night_seer_mock.html]
-    M -->|騎士| P[騎士護衛画面<br/>night_knight_guard_mock.html]
-    M -->|村人 / 狂人 / 死亡者| Q[夜待機画面<br/>night_wait_mock.html]
+## Day
+- `POST /api/games/{game_id}/day_vote`
+- `GET /api/games/{game_id}/day_vote_status`
+- `POST /api/games/{game_id}/resolve_day_simple`
+- `GET /api/games/{game_id}/day_tally`
 
-    %% 夜→次の昼
-    N --> S[夜の行動完了]
-    O --> S
-    P --> S
-    Q --> S
+## Night
+- `POST /api/games/{game_id}/wolves/vote`
+- `POST /api/games/{game_id}/seer/{seer_member_id}/inspect`
+- `POST /api/games/{game_id}/knight/{knight_member_id}/guard`
+- `GET /api/games/{game_id}/night_actions_status`
+- `POST /api/games/{game_id}/resolve_night_simple`
+- `GET /api/games/{game_id}/night_result`
+
+## Result
+- `GET /api/games/{game_id}/judge`
+- `GET /api/games/{game_id}/reveal_roles`
+- `POST /api/games/{game_id}/reveal_roles`
+
+## Debug
+- `POST /api/debug/reset_and_seed`
+- `POST /api/debug/set_game_members`
+
+---
+
+# ✅ スモークテスト
+
+```bash
+python3 scripts/smoke_flow.py
+```
+
+7〜15人のケースを含めて通し確認できます。
 
     S --> T[夜の結果表示]
 
@@ -218,6 +177,5 @@ flowchart TD
 - 騎士の「連続護衛禁止ルール」の追加（オプション化）
 - 結果画面の演出強化（アニメーション / ログの自動再生）
 - 複数ルーム同時運用の UI 整備（管理画面アップデート）
-
 
 
