@@ -136,29 +136,34 @@
   </div>
 
 <script>
+  const API_BASE = (location.protocol === "file:" || location.port === "5500")
+    ? "http://127.0.0.1:8000"
+    : "";
+  const apiFetch = (path, options) => fetch(`${API_BASE}${path}`, options);
+
   const API = {
-    createRoom: (payload) => fetch("/api/rooms", {
+    createRoom: (payload) => apiFetch("/api/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: payload ? JSON.stringify(payload) : null,
     }),
-    getRoom: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}`),
+    getRoom: (roomId) => apiFetch(`/api/rooms/${encodeURIComponent(roomId)}`),
 
-    listRoster: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}/roster`),
-    bulkFromRoster: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}/members/bulk_from_roster`, { method: "POST" }),
+    listRoster: (roomId) => apiFetch(`/api/rooms/${encodeURIComponent(roomId)}/roster`),
+    bulkFromRoster: (roomId) => apiFetch(`/api/rooms/${encodeURIComponent(roomId)}/members/bulk_from_roster`, { method: "POST" }),
 
-    createGame: (roomId) => fetch("/api/games", {
+    createGame: (roomId) => apiFetch("/api/games", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ room_id: roomId }),
     }),
-    startGame: (gameId, requesterMemberId) => fetch(`/api/games/${encodeURIComponent(gameId)}/start`, {
+    startGame: (gameId, requesterMemberId) => apiFetch(`/api/games/${encodeURIComponent(gameId)}/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requester_member_id: requesterMemberId }),
     }),
-    assignRoles: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}/role_assign`, { method: "POST" }),
-    listGameMembers: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}/members`),
+    assignRoles: (gameId) => apiFetch(`/api/games/${encodeURIComponent(gameId)}/role_assign`, { method: "POST" }),
+    listGameMembers: (gameId) => apiFetch(`/api/games/${encodeURIComponent(gameId)}/members`),
   };
 
   const LS = {
@@ -525,12 +530,3 @@
 </script>
 </body>
 </html>
-  starterSelect.addEventListener("change", () => {
-    state.startMemberId = starterSelect.value || "";
-    if (state.startMemberId) {
-      localStorage.setItem(LS.startMemberId, state.startMemberId);
-    } else {
-      localStorage.removeItem(LS.startMemberId);
-    }
-    render();
-  });

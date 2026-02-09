@@ -1,0 +1,9 @@
+
+http://localhost:8000/frontend/room_create.html
+
+http://localhost:8000/frontend/room_host.html
+
+佐藤, 鈴木, 高橋, 渡辺, 山田, 中村
+
+http://192.168.0.186:8000/frontend/room_create.html
+
