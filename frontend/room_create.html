@@ -141,6 +141,9 @@
     : "";
   const apiFetch = (path, options) => fetch(`${API_BASE}${path}`, options);
 
+  const PAGE_BASE = location.pathname.replace(/\/[^/]*$/, "");
+  const pageUrl = (file) => `${location.origin}${PAGE_BASE}/${file}`;
+
   const API = {
     createRoom: (payload) => apiFetch("/api/rooms", {
       method: "POST",
@@ -291,7 +294,7 @@
     if (!hasRoom) {
       joinArea.innerHTML = `<div class="small">Room作成後に参加URLが表示されます。</div>`;
     } else {
-      const joinUrl = `${location.origin}/frontend/room_join.html?room_id=${encodeURIComponent(state.roomId)}`;
+      const joinUrl = `${pageUrl("room_join.html")}?room_id=${encodeURIComponent(state.roomId)}`;
       joinArea.innerHTML = `
         <div class="row" style="justify-content:space-between;">
           <div style="flex:1;">
@@ -329,7 +332,7 @@
     if (!hasGame || !Array.isArray(state.gameMembers) || state.gameMembers.length === 0) {
       playersArea.innerHTML = `<div class="small">Game開始後に「プレイヤーURL（role_confirm）」が表示されます。</div>`;
     } else {
-      const base = `${location.origin}/frontend/role_confirm.html`;
+      const base = pageUrl("role_confirm.html");
       const blocks = state.gameMembers.map((gm, idx) => {
         const name = gm.display_name || gm.name || `player${idx+1}`;
         const playerId = gm.id;
