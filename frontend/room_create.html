@@ -59,7 +59,7 @@
 </head>
 <body>
   <h1>🐺 ルーム作成（参加者）</h1>
-  <div class="muted">Roomを作って参加URLを配布 → rosterが揃ったら確定 → Game作成/開始 → 各自の role_confirm URL を配布（Startを押した人がGM）</div>
+  <div class="muted">Roomを作って参加URLを配布 → rosterが揃ったら確定 → Game作成/開始。参加者は room_join で待機し、開始後に自動で role_confirm へ移動します（Startを押した人がGM）。</div>
 
   <div class="box">
     <div style="font-weight:700;">ルーム名（任意）</div>
@@ -125,8 +125,8 @@
   </div>
 
   <div class="box">
-    <div style="font-weight:700;">④ プレイヤーURL（role_confirm）</div>
-    <div class="small">各自に配布するURLです（player_id は GameMember.id）</div>
+    <div style="font-weight:700;">④ 自動遷移の確認</div>
+    <div class="small">参加者は room_join で待機し、GMがStartすると自動で role_confirm に移動します。</div>
     <div id="playersArea" style="margin-top:8px;"></div>
   </div>
 
@@ -145,6 +145,7 @@
 
   const PAGE_BASE = location.pathname.replace(/\/[^/]*$/, "");
   const pageUrl = (file) => `${location.origin}${PAGE_BASE}/${file}`;
+  const params = new URLSearchParams(location.search);
 
   const API = {
     createRoom: (payload) => apiFetch("/api/rooms", {
@@ -264,6 +265,25 @@
 
   function setState(text){ statePill.textContent = text; }
 
+  function applyStateFromQuery(){
+    const roomIdFromQuery = (params.get("room_id") || "").trim();
+    if (!roomIdFromQuery) return;
+
+    if (state.roomId !== roomIdFromQuery) {
+      state.roomId = roomIdFromQuery;
+      state.gameId = "";
+      state.bulkDone = false;
+      state.startMemberId = "";
+      state.roster = [];
+      state.gameMembers = [];
+
+      localStorage.setItem(LS.roomId, roomIdFromQuery);
+      localStorage.removeItem(LS.gameId);
+      localStorage.removeItem(LS.bulkDone);
+      localStorage.removeItem(LS.startMemberId);
+    }
+  }
+
   function renderJoinQr(text){
     if (!joinQr) return;
     if (!text) {
@@ -335,15 +355,19 @@
       renderJoinQr("");
     } else {
       const joinUrl = `${pageUrl("room_join.html")}?room_id=${encodeURIComponent(state.roomId)}`;
+      const hostUrl = `${pageUrl("room_create.html")}?room_id=${encodeURIComponent(state.roomId)}`;
       joinArea.innerHTML = `
         <div class="row" style="justify-content:space-between;">
           <div style="flex:1;">
             <div class="urlbox">${escapeHtml(joinUrl)}</div>
             <div class="small">※ 参加者にこのURLを送ってください（LINE/QR/口頭など）</div>
+            <div class="small" style="margin-top:8px;">司会の再開URL（別端末でRoomを引き継ぐ）</div>
+            <div class="urlbox">${escapeHtml(hostUrl)}</div>
           </div>
           <div class="row">
             <button class="primary" onclick="copyText('${escapeJs(joinUrl)}')">コピー</button>
             <button class="ghost" onclick="openTab('${escapeJs(joinUrl)}')">開く</button>
+            <button class="ghost" onclick="copyText('${escapeJs(hostUrl)}')">司会URLコピー</button>
           </div>
         </div>
       `;
@@ -371,28 +395,20 @@
     }
 
     if (!hasGame || !Array.isArray(state.gameMembers) || state.gameMembers.length === 0) {
-      playersArea.innerHTML = `<div class="small">Game開始後に「プレイヤーURL（role_confirm）」が表示されます。</div>`;
+      playersArea.innerHTML = `<div class="small">Game作成後に参加者一覧が表示されます。個別URLの配布は不要です。</div>`;
     } else {
-      const base = pageUrl("role_confirm.html");
-      const blocks = state.gameMembers.map((gm, idx) => {
+      const rows = state.gameMembers.map((gm, idx) => {
         const name = gm.display_name || gm.name || `player${idx+1}`;
-        const playerId = gm.id;
-        const url = `${base}?game_id=${encodeURIComponent(state.gameId)}&player_id=${encodeURIComponent(playerId)}`;
-        const role = gm.role_type || "-";
-        return `
-          <div class="box" style="border-color:#eee;">
-            <div class="row" style="justify-content:space-between;">
-              <div><b>${escapeHtml(name)}</b> <span class="pill">${escapeHtml(role)}</span></div>
-              <div class="row">
-                <button class="primary" onclick="copyText('${escapeJs(url)}')">コピー</button>
-                <button class="ghost" onclick="openTab('${escapeJs(url)}')">開く</button>
-              </div>
-            </div>
-            <div class="urlbox">${escapeHtml(url)}</div>
-          </div>
-        `;
+        const hostBadge = gm.id === state.startMemberId ? `<span class="pill">GM</span>` : "";
+        return `<tr><td>${escapeHtml(name)}</td><td>${hostBadge}</td></tr>`;
       }).join("");
-      playersArea.innerHTML = blocks;
+      playersArea.innerHTML = `
+        <table>
+          <thead><tr><th>参加者</th><th>備考</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="small" style="margin-top:8px;">※ Start後、参加者端末の room_join は自動遷移します。</div>
+      `;
     }
 
     const startOptions = (state.gameMembers || []).map((gm, idx) => {
@@ -543,7 +559,7 @@
     setState("Start中...");
     const r = await toJson(await API.startGame(state.gameId, state.startMemberId));
     if (!r.ok) { setState("エラー"); err(`Start失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
-    setState("Start OK（URL配布）");
+    setState("Start OK（参加者は自動遷移）");
     await refreshGameMembers();
   });
 
@@ -553,11 +569,12 @@
     setState("役職割り当て中（role_assign）...");
     const r = await toJson(await API.assignRoles(state.gameId));
     if (!r.ok) { setState("エラー"); err(`role_assign失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
-    setState("役職割り当てOK（URL配布）");
+    setState("役職割り当てOK");
     await refreshGameMembers();
   });
 
   (async function boot(){
+    applyStateFromQuery();
     clearMsg();
     render();
 

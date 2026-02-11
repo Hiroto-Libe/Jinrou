@@ -330,11 +330,14 @@
     const me = findGameMemberByRoomMemberId(gameMembers, state.roomMemberId);
     if (!me) return;
 
-    // Game.status が WAITING の間は司会の開始待ち
+    // started が返る環境では started を優先、返らない環境では status 判定で待機する
     const gameRes = await toJson(await API.getGame(state.gameId));
     if (!gameRes.ok) return;
+    const startedRaw = gameRes.data.started;
+    const hasStartedFlag = typeof startedRaw === "boolean";
     const status = String(gameRes.data.status || "").toUpperCase();
-    if (!status || status === "WAITING") {
+    const waitingByStarted = hasStartedFlag && !startedRaw;
+    if (waitingByStarted || !status || status === "WAITING") {
       log("司会がGameを開始するまで待機しています。");
       return;
     }
