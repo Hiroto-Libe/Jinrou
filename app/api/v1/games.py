@@ -550,11 +550,8 @@ def _judge_game_result(game_id: str, db: Session) -> dict:
         .all()
     )
 
-    real_wolf_count = sum(1 for m in alive_members if m.role_type == "WEREWOLF")
-    village_like_count = len(alive_members) - real_wolf_count
-
-    wolf_count = real_wolf_count
-    village_count = village_like_count
+    wolf_count = sum(1 for m in alive_members if (m.team or "").upper() == "WOLF")
+    village_count = len(alive_members) - wolf_count
     # 役職未割り当て状態（team=None 等）では勝敗確定させない
     pending_assignment = any(
         (m.team or "").upper() not in ("WOLF", "VILLAGE") for m in alive_members
@@ -1216,26 +1213,6 @@ def resolve_day_simple(
 
     day_no = game.curr_day
 
-    alive_members = (
-        db.query(GameMember)
-        .filter(GameMember.game_id == game_id, GameMember.alive == True)
-        .all()
-    )
-    alive_ids = [m.id for m in alive_members]
-
-    voted_count = (
-        db.query(func.count(func.distinct(DayVote.voter_member_id)))
-        .filter(
-            DayVote.game_id == game_id,
-            DayVote.day_no == day_no,
-            DayVote.voter_member_id.in_(alive_ids),
-        )
-        .scalar()
-    ) or 0
-
-    if int(voted_count) < len(alive_ids):
-        raise HTTPException(status_code=400, detail="Not all players have voted")
-
     rows = (
         db.query(
             DayVote.target_member_id,
@@ -1254,32 +1231,7 @@ def resolve_day_simple(
 
     max_votes = max(int(r.vote_count) for r in rows)
     candidates = [r for r in rows if int(r.vote_count) == max_votes]
-
-    if len(candidates) > 1:
-        _RUNOFF_STATE[game_id] = {
-            "day_no": day_no,
-            "candidate_ids": [r.target_member_id for r in candidates],
-        }
-        if hasattr(game, "vote_round"):
-            game.vote_round = (game.vote_round or 0) + 1
-        # 決選投票に備えてこの日の投票をクリア
-        db.query(DayVote).filter(
-            DayVote.game_id == game_id,
-            DayVote.day_no == day_no,
-        ).delete()
-        db.add(game)
-        db.commit()
-
-        return {
-            "game_id": game.id,
-            "day_no": day_no,
-            "status": "RUNOFF",
-            "victim": None,
-            "tally": None,
-            "candidates": [r.target_member_id for r in candidates],
-        }
-
-    chosen = candidates[0]
+    chosen = random.choice(candidates)
 
     victim = db.get(GameMember, chosen.target_member_id)
     if not victim:

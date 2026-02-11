@@ -44,7 +44,7 @@ def _setup_started_game(db: Session, client: TestClient, member_count: int = 8):
     assert res_create.status_code == 200
     game_id = res_create.json()["id"]
 
-    # ゲーム開始（ここで役職配布 & status=NIGHT）
+    # ゲーム開始（ここで役職配布）
     res_start = client.post(f"/api/games/{game_id}/start")
     assert res_start.status_code == 200
 
@@ -105,8 +105,11 @@ def test_wolf_vote_and_resolve_night_kills_target(db: Session, client: TestClien
     """
     game_id, members = _setup_started_game(db, client, member_count=8)
 
-    # この時点では start_game により status="NIGHT" のはず
     game = db.get(Game, game_id)
+    game.status = "NIGHT"
+    db.add(game)
+    db.commit()
+    db.refresh(game)
     assert game.status == "NIGHT"
 
     wolves = [m for m in members if m.team == "WOLF"]
@@ -157,6 +160,10 @@ def test_wolf_vote_by_non_wolf_returns_400(db: Session, client: TestClient):
     game_id, members = _setup_started_game(db, client, member_count=8)
 
     game = db.get(Game, game_id)
+    game.status = "NIGHT"
+    db.add(game)
+    db.commit()
+    db.refresh(game)
     assert game.status == "NIGHT"
 
     wolves = [m for m in members if m.team == "WOLF"]
