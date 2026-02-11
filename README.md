@@ -18,16 +18,22 @@ FastAPI + SQLite + HTML/Vanilla JS で構成された、スマホ参加型の We
 4. GM が `Game作成` -> `Start`
 5. 参加者は `room_join` の待機画面から `role_confirm` へ自動遷移
 6. 以後は昼夜フェーズを進行
+7. ゲーム終了後、GM は同じメンバで次ゲームを作成して再開可能
+8. ゲーム間に GM がメンバ追加/削除を実施可能
 
 ## 画面一覧（主要）
 
 - `frontend/room_create.html`  
   - GM向け画面
   - 参加URL表示、QR表示、roster確認、Game作成/開始
+  - 同じメンバで次ゲーム作成（GMトリガー）
+  - ゲーム間のメンバ追加/削除
+  - Room削除
   - 参加者監視表示は役職を出さない運用
 - `frontend/room_join.html`  
   - 参加者向け登録/待機画面
   - 名前登録後は待機し、開始検出後に `role_confirm` へ自動遷移
+  - `current_game_id` 更新を検出し、次ゲーム待機へ自動追従
 - `frontend/role_confirm.html`  
   - 個人の役職確認画面
 - `frontend/day.html` / `frontend/morning.html` / `frontend/night_*.html` / `frontend/result.html`  
@@ -75,11 +81,14 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ### Rooms
 
 - `POST /api/rooms`
+- `DELETE /api/rooms/{room_id}`
 - `GET /api/rooms/{room_id}`
 - `POST /api/rooms/{room_id}/roster`
 - `GET /api/rooms/{room_id}/roster`
 - `POST /api/rooms/{room_id}/members/bulk_from_roster`
 - `GET /api/rooms/{room_id}/members`
+- `POST /api/rooms/{room_id}/members`
+- `DELETE /api/rooms/{room_id}/members/{member_id}`
 
 ### Games
 
@@ -105,12 +114,15 @@ pytest -q
 
 最新確認結果:
 
-- `61 passed`
+- `68 passed`
 
 ## 最近の運用改善点
 
 - `room_create` で参加URLのQR表示対応
 - `room_join` で参加後待機 -> GM開始で自動遷移
+- 同一メンバでの次ゲーム再開（GMトリガー）に対応
+- ゲーム間メンバ編集（追加/削除）に対応
+- Room削除（関連ゲームデータ含む）に対応
 - GM監視画面で役職非表示
 - 勝敗判定で `MADMAN` を狼陣営としてカウント
 - 昼処理の同票時は候補から1名をランダム処刑

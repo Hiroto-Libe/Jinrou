@@ -29,7 +29,10 @@ def test_day_vote_requires_day_discussion_phase(db: Session, client: TestClient)
     assert game.status == "DAY_DISCUSSION"
 
     voter = members[0]
-    target = members[1]
+    target = next(
+        m for m in members
+        if m.id != voter.id and not (voter.role_type == "WEREWOLF" and m.role_type == "WEREWOLF")
+    )
 
     # --- 1. NIGHT フェーズで叩くと 400 ---
     game.status = "NIGHT"

@@ -182,3 +182,68 @@ def test_members_display_names_created_from_roster(client: TestClient, db: Sessi
     assert len(members) == 2
     names = {m["display_name"] for m in members}
     assert names == {"Alice", "Bob"}
+
+
+def test_add_and_remove_room_member(client: TestClient, db: Session):
+    res = client.post("/api/rooms", json={"name": "Edit Members Room"})
+    assert res.status_code in (200, 201)
+    room_id = res.json()["id"]
+
+    add1 = client.post(f"/api/rooms/{room_id}/members", json={"display_name": "M1"})
+    add2 = client.post(f"/api/rooms/{room_id}/members", json={"display_name": "M2"})
+    assert add1.status_code in (200, 201)
+    assert add2.status_code in (200, 201)
+
+    members = client.get(f"/api/rooms/{room_id}/members").json()
+    assert len(members) == 2
+
+    member_id = members[0]["id"]
+    rm = client.delete(f"/api/rooms/{room_id}/members/{member_id}")
+    assert rm.status_code == 204
+
+    members_after = client.get(f"/api/rooms/{room_id}/members").json()
+    assert len(members_after) == 1
+
+
+def test_cannot_edit_members_while_game_in_progress(client: TestClient, db: Session):
+    res = client.post("/api/rooms", json={"name": "Locked Members Room"})
+    assert res.status_code in (200, 201)
+    room_id = res.json()["id"]
+
+    add = client.post(f"/api/rooms/{room_id}/members", json={"display_name": "P1"})
+    assert add.status_code in (200, 201)
+    member_id = add.json()["id"]
+
+    # current_game_id が設定される（WAITING）
+    game = client.post("/api/games", json={"room_id": room_id})
+    assert game.status_code == 200
+
+    add_blocked = client.post(f"/api/rooms/{room_id}/members", json={"display_name": "P2"})
+    assert add_blocked.status_code == 400
+
+    del_blocked = client.delete(f"/api/rooms/{room_id}/members/{member_id}")
+    assert del_blocked.status_code == 400
+
+
+def test_delete_room_removes_related_game_data(client: TestClient, db: Session):
+    res = client.post("/api/rooms", json={"name": "Delete Room"})
+    assert res.status_code in (200, 201)
+    room_id = res.json()["id"]
+
+    # ゲーム作成に必要なメンバを追加
+    for i in range(6):
+        add = client.post(f"/api/rooms/{room_id}/members", json={"display_name": f"P{i+1}"})
+        assert add.status_code in (200, 201)
+
+    g = client.post("/api/games", json={"room_id": room_id})
+    assert g.status_code == 200
+    game_id = g.json()["id"]
+
+    d = client.delete(f"/api/rooms/{room_id}")
+    assert d.status_code == 204
+
+    room_get = client.get(f"/api/rooms/{room_id}")
+    assert room_get.status_code == 404
+
+    game_get = client.get(f"/api/games/{game_id}")
+    assert game_get.status_code == 404

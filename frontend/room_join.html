@@ -305,19 +305,23 @@
 
   // /api/rooms/{room_id} の current_game_id を見る
   async function detectGameId(){
-    if (state.gameId) return state.gameId;
-
     const r = await toJson(await API.getRoom(state.roomId));
-    if (!r.ok) return "";
+    if (!r.ok) return state.gameId || "";
 
     const gid = r.data.current_game_id || "";
-    if (gid) {
+    if (gid && gid !== state.gameId) {
       state.gameId = gid;
       localStorage.setItem(LS.gameId, gid);
       renderMeta();
+      log("新しいゲームを検出しました。GMの開始を待機します。");
       return gid;
     }
-    return "";
+    if (!gid && state.gameId) {
+      state.gameId = "";
+      localStorage.removeItem(LS.gameId);
+      renderMeta();
+    }
+    return state.gameId || "";
   }
 
   async function tryRedirect(){
@@ -336,6 +340,10 @@
     const startedRaw = gameRes.data.started;
     const hasStartedFlag = typeof startedRaw === "boolean";
     const status = String(gameRes.data.status || "").toUpperCase();
+    if (status === "FINISHED" || status === "WOLF_WIN" || status === "VILLAGE_WIN") {
+      log("このゲームは終了しました。GMが次ゲームを作成するまで待機します。");
+      return;
+    }
     const waitingByStarted = hasStartedFlag && !startedRaw;
     if (waitingByStarted || !status || status === "WAITING") {
       log("司会がGameを開始するまで待機しています。");

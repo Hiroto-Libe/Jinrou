@@ -9,6 +9,8 @@
 
 - 対象:
   - ルーム作成、参加登録、当日メンバー確定
+  - ゲーム間のメンバ追加/削除
+  - Room削除
   - ゲーム作成、開始、昼夜進行、勝敗判定
   - 参加者の待機画面から役職画面への自動遷移
   - QRによる参加URL共有
@@ -52,9 +54,15 @@
   - `bulk_from_roster` 実行（6人以上で有効）
 - ゲーム開始
   - Game作成
+  - 同じメンバで次ゲーム作成（GMトリガー）
   - 開始者（GM）選択
   - Start
   - 必要時 role_assign
+- メンバ編集
+  - games の合間に members 追加/削除
+  - 進行中ゲーム中は編集不可
+- Room管理
+  - Room削除（関連データも削除）
 - 監視表示
   - 参加者一覧は表示
   - 役職は非表示
@@ -68,6 +76,7 @@
   - `room.current_game_id`
   - 自分の `room_member_id`
   - `game.status`（および取得可能なら `game.started`）
+- `current_game_id` が更新された場合は、新しいゲーム待機へ自動追従
 - 開始検出時に `role_confirm.html?game_id=...&player_id=...` へ自動遷移
 
 ## 6. 業務フロー仕様
@@ -80,6 +89,8 @@
 6. 参加者が待機画面から `role_confirm` へ自動遷移
 7. 昼夜進行（投票、夜行動、解決）
 8. 勝敗確定で終了
+9. GMが必要に応じて「同じメンバで次ゲーム作成」を実行
+10. 参加者は `room_join` 待機のまま新しい `current_game_id` を検出し、Start後に再度自動遷移
 
 ## 7. 役職・陣営仕様
 
@@ -121,11 +132,14 @@
 ## 9.1 Rooms
 
 - `POST /api/rooms`
+- `DELETE /api/rooms/{room_id}`
 - `GET /api/rooms/{room_id}`
 - `POST /api/rooms/{room_id}/roster`
 - `GET /api/rooms/{room_id}/roster`
 - `POST /api/rooms/{room_id}/members/bulk_from_roster`
 - `GET /api/rooms/{room_id}/members`
+- `POST /api/rooms/{room_id}/members`
+- `DELETE /api/rooms/{room_id}/members/{member_id}`
 
 ## 9.2 Games
 
@@ -155,6 +169,7 @@
 - `400 Game is not in NIGHT phase / DAY_DISCUSSION phase`
 - `400 Member is not a werewolf`
 - `400 Need at least 6 players`
+- `400 Cannot modify members while current game is in progress`
 
 ## 12. 非機能仕様（現状）
 
@@ -168,4 +183,3 @@
 - `01_requirements.md` 記載の WebSocket リアルタイム同期は未実装（現状はポーリング）
 - 顔写真撮影・管理の正式UXは未実装（Profile APIは存在）
 - MVPとして手動進行中心の設計は要件どおり
-

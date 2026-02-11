@@ -68,6 +68,7 @@
       <input id="roomNameInput" placeholder="（未入力でもOK）" />
       <button class="primary" id="clearBtn">この画面の状態を消す</button>
       <button class="primary" id="createRoomBtn">Roomを作成</button>
+      <button class="ghost" id="deleteRoomBtn">Room削除</button>
     </div>
     <div class="hr"></div>
     <div class="row" style="justify-content:space-between;">
@@ -105,11 +106,29 @@
   <div class="box">
     <div class="row" style="justify-content:space-between;">
       <div>
+        <div style="font-weight:700;">②.5 メンバ編集（ゲーム間のみ）</div>
+        <div class="small">ゲーム終了後に同じRoomで次ゲームを行うための参加者追加・削除</div>
+      </div>
+      <div class="row">
+        <button class="ghost" id="refreshMembersBtn">members更新</button>
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <input id="memberNameInput" placeholder="追加する表示名" />
+      <button class="primary" id="addMemberBtn">メンバ追加</button>
+    </div>
+    <div id="membersArea" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="box">
+    <div class="row" style="justify-content:space-between;">
+      <div>
         <div style="font-weight:700;">③ Game作成 & 開始</div>
         <div class="small">確定後に Game 作成 → Start（必要なら role_assign）</div>
       </div>
       <div class="row">
         <button class="primary" id="createGameBtn" disabled>Game作成</button>
+        <button class="primary" id="restartGameBtn" disabled>同じメンバで次ゲーム作成</button>
         <button class="primary" id="startGameBtn" disabled>Start</button>
         <button class="ghost" id="assignRolesBtn" disabled>役職割り当て（role_assign）</button>
       </div>
@@ -157,6 +176,18 @@
 
     listRoster: (roomId) => apiFetch(`/api/rooms/${encodeURIComponent(roomId)}/roster`),
     bulkFromRoster: (roomId) => apiFetch(`/api/rooms/${encodeURIComponent(roomId)}/members/bulk_from_roster`, { method: "POST" }),
+    listRoomMembers: (roomId) => apiFetch(`/api/rooms/${encodeURIComponent(roomId)}/members`),
+    addRoomMember: (roomId, payload) => apiFetch(`/api/rooms/${encodeURIComponent(roomId)}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+    removeRoomMember: (roomId, memberId) => apiFetch(`/api/rooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(memberId)}`, {
+      method: "DELETE",
+    }),
+    deleteRoom: (roomId) => apiFetch(`/api/rooms/${encodeURIComponent(roomId)}`, {
+      method: "DELETE",
+    }),
 
     createGame: (roomId) => apiFetch("/api/games", {
       method: "POST",
@@ -187,6 +218,7 @@
     bulkDone: localStorage.getItem(LS.bulkDone) === "1",
     startMemberId: localStorage.getItem(LS.startMemberId) || "",
     roster: [],
+    roomMembers: [],
     gameMembers: [],
   };
 
@@ -199,6 +231,7 @@
   const joinArea = document.getElementById("joinArea");
   const joinQr = document.getElementById("joinQr");
   const rosterArea = document.getElementById("rosterArea");
+  const membersArea = document.getElementById("membersArea");
   const playersArea = document.getElementById("playersArea");
 
   const logEl = document.getElementById("log");
@@ -206,14 +239,19 @@
 
   const createRoomBtn = document.getElementById("createRoomBtn");
   const refreshRosterBtn = document.getElementById("refreshRosterBtn");
+  const refreshMembersBtn = document.getElementById("refreshMembersBtn");
   const bulkBtn = document.getElementById("bulkBtn");
+  const memberNameInput = document.getElementById("memberNameInput");
+  const addMemberBtn = document.getElementById("addMemberBtn");
 
   const createGameBtn = document.getElementById("createGameBtn");
+  const restartGameBtn = document.getElementById("restartGameBtn");
   const startGameBtn = document.getElementById("startGameBtn");
   const assignRolesBtn = document.getElementById("assignRolesBtn");
   const starterSelect = document.getElementById("starterSelect");
 
   const clearBtn = document.getElementById("clearBtn");
+  const deleteRoomBtn = document.getElementById("deleteRoomBtn");
 
   function log(msg){ logEl.textContent = msg; }
   function err(msg){ errEl.textContent = msg; }
@@ -340,6 +378,10 @@
     bulkBtn.className = canBulk ? "primary" : "ghost";
 
     createGameBtn.disabled = !hasRoom;
+    restartGameBtn.disabled = !hasRoom;
+    addMemberBtn.disabled = !hasRoom;
+    refreshMembersBtn.disabled = !hasRoom;
+    deleteRoomBtn.disabled = !hasRoom;
     const memberIds = new Set((state.gameMembers || []).map((m) => m.id));
     if (state.startMemberId && !memberIds.has(state.startMemberId)) {
       state.startMemberId = "";
@@ -394,6 +436,29 @@
       `;
     }
 
+    if (!hasRoom) {
+      membersArea.innerHTML = `<div class="small">Room作成後に members を編集できます。</div>`;
+    } else {
+      const rows = (state.roomMembers || []).map((m, i) => {
+        const name = m.display_name || m.name || m.id || `member${i+1}`;
+        return `
+          <tr>
+            <td>${escapeHtml(name)}</td>
+            <td style="text-align:right;">
+              <button class="ghost" onclick="removeMember('${escapeJs(m.id)}')">削除</button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+      membersArea.innerHTML = `
+        <div>確定メンバ数：<span class="pill">${(state.roomMembers || []).length}</span></div>
+        <table>
+          <thead><tr><th>members</th><th></th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="2">（まだ確定メンバはいません）</td></tr>`}</tbody>
+        </table>
+      `;
+    }
+
     if (!hasGame || !Array.isArray(state.gameMembers) || state.gameMembers.length === 0) {
       playersArea.innerHTML = `<div class="small">Game作成後に参加者一覧が表示されます。個別URLの配布は不要です。</div>`;
     } else {
@@ -428,6 +493,14 @@
     render();
   }
 
+  async function refreshRoomMembers(){
+    if (!state.roomId) return;
+    const r = await toJson(await API.listRoomMembers(state.roomId));
+    if (!r.ok) { err(`members取得失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+    state.roomMembers = Array.isArray(r.data) ? r.data : (r.data.items || []);
+    render();
+  }
+
   async function refreshGameMembers(){
     if (!state.gameId) return;
     const r = await toJson(await API.listGameMembers(state.gameId));
@@ -439,6 +512,17 @@
     }
     render();
   }
+
+  window.removeMember = async (memberId) => {
+    clearMsg();
+    if (!state.roomId || !memberId) return;
+    if (!confirm("このメンバを削除しますか？")) return;
+    setState("メンバ削除中...");
+    const r = await toJson(await API.removeRoomMember(state.roomId, memberId));
+    if (!r.ok) { setState("エラー"); err(`メンバ削除失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+    setState("メンバ削除OK");
+    await refreshRoomMembers();
+  };
 
   async function createRoomWithName(roomName){
     // roomNameが空なら body無しで作る（受け付ける実装が多い）
@@ -476,6 +560,7 @@
     state.bulkDone = false;
     state.startMemberId = "";
     state.roster = [];
+    state.roomMembers = [];
     state.gameMembers = [];
 
     clearMsg();
@@ -516,6 +601,7 @@
     setState("Room作成OK（参加URLを配布）");
     render();
     await refreshRoster();
+    await refreshRoomMembers();
   });
 
   refreshRosterBtn.addEventListener("click", async () => {
@@ -535,6 +621,27 @@
     localStorage.setItem(LS.bulkDone, "1");
     setState("roster確定OK（Game作成へ）");
     render();
+    await refreshRoomMembers();
+  });
+
+  refreshMembersBtn.addEventListener("click", async () => {
+    clearMsg();
+    setState("members更新中...");
+    await refreshRoomMembers();
+    setState("members更新OK");
+  });
+
+  addMemberBtn.addEventListener("click", async () => {
+    clearMsg();
+    if (!state.roomId) return;
+    const name = (memberNameInput.value || "").trim();
+    if (!name) { err("追加する表示名を入力してください"); return; }
+    setState("メンバ追加中...");
+    const r = await toJson(await API.addRoomMember(state.roomId, { display_name: name }));
+    if (!r.ok) { setState("エラー"); err(`メンバ追加失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+    memberNameInput.value = "";
+    setState("メンバ追加OK");
+    await refreshRoomMembers();
   });
 
   createGameBtn.addEventListener("click", async () => {
@@ -550,6 +657,47 @@
     setState("Game作成OK（Startへ）");
     render();
     await refreshGameMembers();
+  });
+
+  restartGameBtn.addEventListener("click", async () => {
+    clearMsg();
+    if (!state.roomId) return;
+    setState("次ゲーム作成中（同じメンバ）...");
+    const r = await toJson(await API.createGame(state.roomId));
+    if (!r.ok) { setState("エラー"); err(`次ゲーム作成失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+    const gameId = r.data.id || r.data.game_id || r.data.gameId;
+    if (!gameId) { setState("エラー"); err(`次ゲーム作成は成功しましたが game_id が見つかりません: ${JSON.stringify(r.data)}`); return; }
+    state.gameId = gameId;
+    localStorage.setItem(LS.gameId, gameId);
+    state.startMemberId = "";
+    localStorage.removeItem(LS.startMemberId);
+    setState("次ゲーム作成OK（Start待ち）");
+    render();
+    await refreshGameMembers();
+  });
+
+  deleteRoomBtn.addEventListener("click", async () => {
+    clearMsg();
+    if (!state.roomId) return;
+    if (!confirm("このRoomを削除します。関連するゲーム情報も削除されます。続行しますか？")) return;
+    setState("Room削除中...");
+    const r = await toJson(await API.deleteRoom(state.roomId));
+    if (!r.ok) { setState("エラー"); err(`Room削除失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
+    localStorage.removeItem(LS.roomId);
+    localStorage.removeItem(LS.roomName);
+    localStorage.removeItem(LS.gameId);
+    localStorage.removeItem(LS.bulkDone);
+    localStorage.removeItem(LS.startMemberId);
+    state.roomId = "";
+    state.roomName = "";
+    state.gameId = "";
+    state.bulkDone = false;
+    state.startMemberId = "";
+    state.roster = [];
+    state.roomMembers = [];
+    state.gameMembers = [];
+    setState("Room削除完了");
+    render();
   });
 
   startGameBtn.addEventListener("click", async () => {
@@ -582,6 +730,7 @@
       setState("再開（参加URLを配布）");
       await pullRoomNameIfPossible(state.roomId);
       await refreshRoster();
+      await refreshRoomMembers();
     } else {
       setState("未開始");
     }

@@ -1,28 +1,52 @@
 # app/api/v1/rooms.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 import uuid
 
 from ...api.deps import get_db_dep
 from ...models.room import Room, RoomRoster, RoomMember
 from ...models.profile import Profile
-from app.schemas.room import RoomOut 
+from ...models.game import Game, GameMember, DayVote, WolfVote, SeerInspect, MediumInspect
+from ...models.knight import KnightGuard
 from ...schemas.room import (
     RoomCreate,
     RoomOut,
-    RoomRosterCreate,
     RoomRosterItem,
     RoomMemberListItem,
     BulkMembersFromRosterRequest,
-    RoomRosterJoinRequest,  
+    RoomRosterJoinRequest,
+    RoomMemberCreateRequest,
 )
-from app.schemas.room import RoomRosterItem, RoomRosterJoinRequest
 
 router = APIRouter(
     prefix="/rooms",   # ★ ここを /rooms に固定
     tags=["rooms"],
 )
+
+
+def _ensure_room_member_editable(room: Room, db: Session) -> None:
+    """
+    room_members を編集できるのは「進行中ゲームがない」場合のみ。
+    current_game_id があり、ゲームが進行中なら 400 を返す。
+    """
+    if not room.current_game_id:
+        return
+
+    game = db.get(Game, room.current_game_id)
+    if game is None:
+        room.current_game_id = None
+        db.add(room)
+        db.commit()
+        return
+
+    status = (game.status or "").upper()
+    ended_statuses = {"FINISHED", "WOLF_WIN", "VILLAGE_WIN"}
+    if status not in ended_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot modify members while current game is in progress",
+        )
 
 
 # -----------------------------
@@ -216,6 +240,81 @@ def list_room_members(
         .all()
     )
     return [RoomMemberListItem.model_validate(m) for m in members]
+
+
+@router.post("/{room_id}/members", response_model=RoomMemberListItem)
+def add_room_member(
+    room_id: str,
+    data: RoomMemberCreateRequest,
+    db: Session = Depends(get_db_dep),
+):
+    room = db.get(Room, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    _ensure_room_member_editable(room, db)
+
+    member = RoomMember(
+        id=str(uuid.uuid4()),
+        room_id=room_id,
+        display_name=data.display_name,
+        avatar_url=data.avatar_url,
+        is_host=False,
+    )
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+    return RoomMemberListItem.model_validate(member)
+
+
+@router.delete("/{room_id}/members/{member_id}", status_code=204)
+def remove_room_member(
+    room_id: str,
+    member_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    room = db.get(Room, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    _ensure_room_member_editable(room, db)
+
+    member = db.get(RoomMember, member_id)
+    if not member or member.room_id != room_id:
+        raise HTTPException(status_code=404, detail="Room member not found")
+
+    db.delete(member)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.delete("/{room_id}", status_code=204)
+def delete_room(
+    room_id: str,
+    db: Session = Depends(get_db_dep),
+):
+    room = db.get(Room, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    game_ids = [
+        gid for (gid,) in db.query(Game.id).filter(Game.room_id == room_id).all()
+    ]
+
+    if game_ids:
+        db.query(DayVote).filter(DayVote.game_id.in_(game_ids)).delete(synchronize_session=False)
+        db.query(WolfVote).filter(WolfVote.game_id.in_(game_ids)).delete(synchronize_session=False)
+        db.query(SeerInspect).filter(SeerInspect.game_id.in_(game_ids)).delete(synchronize_session=False)
+        db.query(MediumInspect).filter(MediumInspect.game_id.in_(game_ids)).delete(synchronize_session=False)
+        db.query(KnightGuard).filter(KnightGuard.game_id.in_(game_ids)).delete(synchronize_session=False)
+        db.query(GameMember).filter(GameMember.game_id.in_(game_ids)).delete(synchronize_session=False)
+        db.query(Game).filter(Game.id.in_(game_ids)).delete(synchronize_session=False)
+
+    db.query(RoomRoster).filter(RoomRoster.room_id == room_id).delete(synchronize_session=False)
+    db.query(RoomMember).filter(RoomMember.room_id == room_id).delete(synchronize_session=False)
+    db.delete(room)
+    db.commit()
+    return Response(status_code=204)
 
 @router.get("/{room_id}", response_model=RoomOut)
 def get_room(room_id: str, db: Session = Depends(get_db_dep)):

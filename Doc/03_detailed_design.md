@@ -93,8 +93,17 @@
 - `POST /rooms/{room_id}/members/bulk_from_roster`
   - 処理: rosterから `room_members` を生成
   - 先頭生成者に `is_host = true` を付与
+- `POST /rooms/{room_id}/members`
+  - 手動メンバ追加
+  - 進行中ゲーム中は拒否
+- `DELETE /rooms/{room_id}/members/{member_id}`
+  - 手動メンバ削除
+  - 進行中ゲーム中は拒否
 - `GET /rooms/{room_id}`
   - `current_game_id` を返す（join画面の自動遷移検出で使用）
+- `DELETE /rooms/{room_id}`
+  - Room削除
+  - 関連する games / game_members / votes / night actions も削除
 
 ## 4.2 Games API
 
@@ -155,6 +164,9 @@
   - 読み込み失敗時は `api.qrserver.com` へフォールバック
 - roster更新/確定
 - game作成/start
+- 同一メンバで次ゲーム作成（`POST /api/games` を再実行）
+- games の合間に members 追加/削除
+- Room削除
 - 監視表示（参加者一覧、役職は表示しない）
 
 ### URL再開
@@ -174,10 +186,12 @@
 - 2秒ポーリング
   - Room名/roster表示更新
   - `current_game_id` 検出
+  - `current_game_id` 更新時に新ゲームへ追従（旧 `game_id` 固定を避ける）
   - `room_members` から自分のID特定
   - `game.status`（および取得可能なら `started`）で開始判定
 - 開始検出後:
   - `role_confirm` へ自動遷移
+  - 終了状態（`FINISHED` / `WOLF_WIN` / `VILLAGE_WIN`）は待機継続
 
 ### 入力安定化
 
@@ -203,6 +217,7 @@
 - `room_join`（未参加）
 - `room_join`（待機）
 - `role_confirm`（自動遷移）
+- （次ゲーム作成後）`room_join`（新ゲーム待機） -> `role_confirm`（再遷移）
 
 ## 7. 判定ロジック設計
 
@@ -224,6 +239,7 @@
 
 - 404: リソース不存在（Room/Game/Profile等）
 - 400: フェーズ不整合、入力不足、人数不足
+- 400: 進行中ゲーム中の members 編集要求
 - 403: Host権限不足（例: day解決）
 
 フロントは `toJson` でレスポンスを吸収し、画面内ログで表示する。
@@ -232,7 +248,7 @@
 
 - テストフレームワーク: pytest
 - API単体 + フローを中心に検証
-- 現在の自動テスト結果: `61 passed`
+- 現在の自動テスト結果: `68 passed`
 
 主な検証観点:
 
@@ -242,6 +258,9 @@
 - wolves vote/resolve_night
 - seer/knight/medium
 - madmanを含む勝敗判定
+- ゲーム間の members 追加/削除
+- 進行中ゲームでの members 編集禁止
+- Room削除時の関連データ削除
 
 ## 10. 既知の制約と今後課題
 
@@ -258,4 +277,5 @@
 3. 参加者はQRから `room_join` に入って登録
 4. GMが `roster確定 -> Game作成 -> Start`
 5. 参加者が自動遷移したことを確認し、ゲーム進行
-
+6. ゲーム終了後、GMが `同じメンバで次ゲーム作成` を押下
+7. 参加者は `room_join` で待機継続し、Start後に再度自動遷移

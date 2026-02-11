@@ -49,3 +49,8 @@ class RoomMemberListItem(BaseModel):
 
 class BulkMembersFromRosterRequest(BaseModel):
     profile_ids: list[str]
+
+
+class RoomMemberCreateRequest(BaseModel):
+    display_name: str
+    avatar_url: Optional[str] = None
