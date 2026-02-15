@@ -47,6 +47,15 @@
     .list { margin:8px 0 0; padding-left: 18px; }
     .small { font-size:.85rem; color:#666; }
     .hr { height:1px; background:#eee; margin:10px 0; }
+    .avatar-preview {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      border: 1px solid #ddd;
+      background: #f5f5f5;
+      object-fit: cover;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -72,6 +81,11 @@
       <input id="nameInput" placeholder="表示名（例：さとう）" autocomplete="off" />
       <button class="primary" id="joinBtn">参加する</button>
     </div>
+    <div class="row" style="margin-top:8px;">
+      <input id="avatarInput" type="file" accept="image/*" capture="environment" />
+      <img id="avatarPreview" class="avatar-preview" alt="avatar preview" />
+    </div>
+    <div class="small">※ 任意: アイコン画像を設定できます（撮影または画像選択）。</div>
     <div class="small">※ 参加後は「司会が開始するまで待機」になります。</div>
 
     <div class="hr"></div>
@@ -110,11 +124,11 @@
 <script>
   const API = {
     getRoom: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}`),
-    addToRoster: (roomId, displayName) =>
+    addToRoster: (roomId, displayName, avatarUrl) =>
       fetch(`/api/rooms/${encodeURIComponent(roomId)}/roster`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ display_name: displayName }),
+        body: JSON.stringify({ display_name: displayName, avatar_url: avatarUrl || null }),
       }),
     listRoster: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}/roster`),
     listRoomMembers: (roomId) => fetch(`/api/rooms/${encodeURIComponent(roomId)}/members`),
@@ -129,6 +143,7 @@
   const LS_PREFIX = `jinrou_room_join_${roomId || "unknown"}_`;
   const LS = {
     name: LS_PREFIX + "name",
+    avatar: LS_PREFIX + "avatar",
     joined: LS_PREFIX + "joined",
     roomMemberId: LS_PREFIX + "room_member_id",
     gameId: LS_PREFIX + "game_id",
@@ -139,6 +154,7 @@
     roomId,
     roomName: localStorage.getItem(LS.roomName) || "",
     name: localStorage.getItem(LS.name) || "",
+    avatarUrl: localStorage.getItem(LS.avatar) || "",
     joined: localStorage.getItem(LS.joined) === "1",
     roomMemberId: localStorage.getItem(LS.roomMemberId) || "",
     gameId: localStorage.getItem(LS.gameId) || "",
@@ -157,6 +173,8 @@
   const elErr = document.getElementById("error");
 
   const nameInput = document.getElementById("nameInput");
+  const avatarInput = document.getElementById("avatarInput");
+  const avatarPreview = document.getElementById("avatarPreview");
   const joinBtn = document.getElementById("joinBtn");
   const clearBtn = document.getElementById("clearBtn");
 
@@ -210,6 +228,47 @@
     nameInput.value = nextValue ?? "";
   }
 
+  function renderAvatarPreview() {
+    if (state.avatarUrl) {
+      avatarPreview.src = state.avatarUrl;
+      avatarPreview.style.display = "block";
+      return;
+    }
+    avatarPreview.removeAttribute("src");
+    avatarPreview.style.display = "none";
+  }
+
+  async function fileToDataUrl(file) {
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function resizeImageDataUrl(dataUrl, maxEdge = 256, quality = 0.82) {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error("画像の変換に失敗しました"));
+      i.src = dataUrl;
+    });
+    const srcW = img.naturalWidth || img.width;
+    const srcH = img.naturalHeight || img.height;
+    if (!srcW || !srcH) return dataUrl;
+    const scale = Math.min(1, maxEdge / Math.max(srcW, srcH));
+    const dstW = Math.max(1, Math.round(srcW * scale));
+    const dstH = Math.max(1, Math.round(srcH * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = dstW;
+    canvas.height = dstH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return dataUrl;
+    ctx.drawImage(img, 0, 0, dstW, dstH);
+    return canvas.toDataURL("image/jpeg", quality);
+  }
+
   // =========================================================
   // 描画
   // =========================================================
@@ -229,6 +288,8 @@
 
     // 参加済みなら入力欄をロック（任意：事故防止）
     nameInput.disabled = !!state.joined;
+    avatarInput.disabled = !!state.joined;
+    renderAvatarPreview();
 
     joinBtn.disabled = !state.roomId || state.joined;
   }
@@ -401,6 +462,34 @@
     }
   });
 
+  avatarInput.addEventListener("change", async () => {
+    clearMsg();
+    if (state.joined) return;
+    const file = avatarInput.files && avatarInput.files[0];
+    if (!file) {
+      state.avatarUrl = "";
+      localStorage.removeItem(LS.avatar);
+      renderAvatarPreview();
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      err("画像ファイルを選択してください");
+      avatarInput.value = "";
+      return;
+    }
+    try {
+      log("画像を処理中…");
+      const raw = await fileToDataUrl(file);
+      const resized = await resizeImageDataUrl(raw, 256, 0.82);
+      state.avatarUrl = resized;
+      localStorage.setItem(LS.avatar, resized);
+      renderAvatarPreview();
+      log("アイコン画像を設定しました。");
+    } catch (e) {
+      err(e?.message || "画像の処理に失敗しました");
+    }
+  });
+
   joinBtn.addEventListener("click", async () => {
     clearMsg();
     if (!state.roomId) { err("URLに room_id がありません"); return; }
@@ -413,12 +502,17 @@
     if (!name) { err("表示名を入力してください"); return; }
 
     log("参加登録中…");
-    const r = await toJson(await API.addToRoster(state.roomId, name));
+    const r = await toJson(await API.addToRoster(state.roomId, name, state.avatarUrl));
     if (!r.ok) { err(`参加登録失敗(${r.status}): ${JSON.stringify(r.data)}`); return; }
 
     state.name = name;
     state.joined = true;
     localStorage.setItem(LS.name, name);
+    if (state.avatarUrl) {
+      localStorage.setItem(LS.avatar, state.avatarUrl);
+    } else {
+      localStorage.removeItem(LS.avatar);
+    }
     localStorage.setItem(LS.joined, "1");
 
     setStatePill("待機中（司会の開始待ち）");
@@ -440,6 +534,7 @@
 
   clearBtn.addEventListener("click", () => {
     localStorage.removeItem(LS.name);
+    localStorage.removeItem(LS.avatar);
     localStorage.removeItem(LS.joined);
     localStorage.removeItem(LS.roomMemberId);
     localStorage.removeItem(LS.gameId);
@@ -447,6 +542,7 @@
 
     state.roomName = "";
     state.name = "";
+    state.avatarUrl = "";
     state.joined = false;
     state.roomMemberId = "";
     state.gameId = "";
@@ -454,6 +550,8 @@
     manualGameId.value = "";
     nameInput.disabled = false;
     nameInput.value = ""; // ここは「消す」なのでOK
+    avatarInput.disabled = false;
+    avatarInput.value = "";
 
     clearMsg();
     setStatePill("未参加");

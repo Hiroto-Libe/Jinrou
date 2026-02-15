@@ -134,6 +134,29 @@ def test_list_roster_after_join(client: TestClient, db: Session):
     assert "Bob" in display_names
 
 
+def test_join_roster_with_avatar_and_reflect_to_members(client: TestClient, db: Session):
+    res = client.post("/api/rooms", json={"name": "Avatar Room"})
+    assert res.status_code in (200, 201)
+    room_id = res.json()["id"]
+
+    avatar_data_url = "data:image/png;base64,AAAABBBBCCCC"
+    join = client.post(
+        f"/api/rooms/{room_id}/roster",
+        json={"display_name": "IconUser", "avatar_url": avatar_data_url},
+    )
+    assert join.status_code in (200, 201)
+    joined = join.json()
+    assert joined["avatar_url"] == avatar_data_url
+
+    roster = client.get(f"/api/rooms/{room_id}/roster")
+    assert roster.status_code == 200
+    assert roster.json()[0]["avatar_url"] == avatar_data_url
+
+    bulk = client.post(f"/api/rooms/{room_id}/members/bulk_from_roster")
+    assert bulk.status_code in (200, 201)
+    assert bulk.json()[0]["avatar_url"] == avatar_data_url
+
+
 def test_get_roster_of_nonexistent_room_returns_404(client: TestClient, db: Session):
     fake_room_id = "non-existent-room-id"
     res = client.get(f"/api/rooms/{fake_room_id}/roster")

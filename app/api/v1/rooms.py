@@ -95,7 +95,7 @@ def add_to_roster(
     profile = Profile(
         id=str(uuid.uuid4()),
         display_name=data.display_name,
-        avatar_url=None,
+        avatar_url=data.avatar_url,
         is_deleted=False,
     )
     db.add(profile)
