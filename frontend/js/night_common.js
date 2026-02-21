@@ -47,6 +47,19 @@
     return await res.json();
   }
 
+  function formatNightProgress(actions) {
+    const wolvesDone = Number(actions?.wolves_done || 0);
+    const seerDone = Number(actions?.seer_done || 0);
+    const knightDone = Number(actions?.knight_done || 0);
+    const wolvesTotal = Number(actions?.wolves_total || 0);
+    const seerTotal = Number(actions?.seer_total || 0);
+    const knightTotal = Number(actions?.knight_total || 0);
+    const done = wolvesDone + seerDone + knightDone;
+    const total = wolvesTotal + seerTotal + knightTotal;
+    const allDone = !!actions?.all_done;
+    return `夜行動の進捗：${done}/${total}（全完了: ${allDone ? "はい" : "いいえ"}）`;
+  }
+
   function defaultRenderMembers({
     members,
     me,
@@ -306,11 +319,7 @@
         noteEl.style.display = "none";
       }
 
-      statusEl.textContent =
-        `夜行動の進捗：人狼 ${actions.wolves_done}/${actions.wolves_total}` +
-        `・占い師 ${actions.seer_done}/${actions.seer_total}` +
-        `・騎士 ${actions.knight_done}/${actions.knight_total}` +
-        `（全完了: ${actions.all_done ? "はい" : "いいえ"}）`;
+      statusEl.textContent = formatNightProgress(actions);
 
       buttonEl.disabled = !actions.all_done;
       buttonEl.title = actions.all_done ? "" : "全員の夜行動が完了するまで押せません";
@@ -341,7 +350,12 @@
     }, intervalMs);
   }
 
-  global.JinrouNight = { initNightRolePage, setupHostNightPanel, watchNightToMorning };
+  global.JinrouNight = {
+    initNightRolePage,
+    setupHostNightPanel,
+    watchNightToMorning,
+    formatNightProgress,
+  };
 })(window);
 
 // ===== Win/Lose auto redirect =====

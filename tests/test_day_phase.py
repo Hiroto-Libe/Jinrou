@@ -89,9 +89,9 @@ def test_day_vote_and_resolve_day_executes_target(db: Session, client: TestClien
     alive_members = [m for m in members if m.alive]
     assert len(alive_members) >= 2
 
-    # 投票ターゲットは先頭、その他全員がその人に投票
-    target = alive_members[0]
-    voters = alive_members[1:]
+    # 投票ターゲットは「人狼以外」を選ぶ（人狼→人狼投票禁止ルールに引っかけない）
+    target = next(m for m in alive_members if m.role_type != "WEREWOLF")
+    voters = [m for m in alive_members if m.id != target.id]
 
     for voter in voters:
         res = client.post(

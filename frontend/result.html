@@ -126,6 +126,7 @@
       </div>
       <div class="row">
         <button class="ghost" id="refresh">更新</button>
+        <button class="ghost" id="to-room-join">次ゲーム待機へ</button>
         <button class="ghost" id="to-role">役職確認へ</button>
         <button class="primary" id="to-day">昼へ</button>
         <button class="primary" id="to-night">夜へ</button>
@@ -206,6 +207,24 @@
 
     function jump(path) {
       location.href = `/frontend/${path}?game_id=${encodeURIComponent(gameId)}&player_id=${encodeURIComponent(playerId)}`;
+    }
+
+    async function jumpRoomJoin() {
+      let roomId = (lastGame && lastGame.room_id) || localStorage.getItem("jinrou_last_room_id") || "";
+      if (!roomId && gameId) {
+        try {
+          const r = await fetchJson(`/api/games/${encodeURIComponent(gameId)}`);
+          if (r.ok && r.data?.room_id) {
+            roomId = String(r.data.room_id);
+            localStorage.setItem("jinrou_last_room_id", roomId);
+          }
+        } catch (_) {}
+      }
+      if (!roomId) {
+        log("room_id を特定できませんでした。GMの参加QRから room_join を開いてください。");
+        return;
+      }
+      location.href = `/frontend/room_join.html?room_id=${encodeURIComponent(roomId)}&force_wait=1`;
     }
 
     async function fetchJson(url) {
@@ -436,6 +455,9 @@
       }
 
       lastGame = gameRes.data;
+      if (lastGame && lastGame.room_id) {
+        localStorage.setItem("jinrou_last_room_id", lastGame.room_id);
+      }
       lastJudge = judgeRes.data;
       lastMembers = memRes.data;
       lastMe = me;
@@ -486,6 +508,9 @@
     });
 
     document.getElementById("refresh").addEventListener("click", sync);
+    document.getElementById("to-room-join").addEventListener("click", () => {
+      jumpRoomJoin().catch(() => {});
+    });
     document.getElementById("to-role").addEventListener("click", () => jump("role_confirm.html"));
     btnToDay.addEventListener("click", () => jump("day.html"));
     btnToNight.addEventListener("click", () => jump("role_confirm.html"));

@@ -127,8 +127,8 @@ def test_medium_inspect_madman_is_white(db: Session):
     assert result.target_member_id == executed_madman.id
 
 
-# 3) 勝利判定では狂人も狼陣営として数えられることの確認
-def test_judge_counts_madman_as_wolf_side(db: Session):
+# 3) 勝利判定では狂人は狼人数に含めないことの確認
+def test_judge_does_not_count_madman_as_werewolf(db: Session):
     game = _create_base_game(db, status="DAY_DISCUSSION")
 
     # 生存村人 1人
@@ -157,7 +157,7 @@ def test_judge_counts_madman_as_wolf_side(db: Session):
         order_no=2,
     )
 
-    # 生存狂人 1人（勝敗判定では狼サイドとしてカウントしたい）
+    # 生存狂人 1人（勝敗判定の狼人数には含めない）
     madman = GameMember(
         id=str(uuid.uuid4()),
         game_id=game.id,
@@ -175,7 +175,7 @@ def test_judge_counts_madman_as_wolf_side(db: Session):
 
     result = _judge_game_result(game.id, db)
 
-    # 生存: 村1 / 狼陣営1（狂人のみ） → 狼数 >= 村数 → WOLF_WIN になる想定
-    assert result["wolf_alive"] == 1
-    assert result["village_alive"] == 1
-    assert result["result"] == "WOLF_WIN"
+    # 生存: 村1 / 狂人1（実狼0） → 実狼全滅扱いで VILLAGE_WIN
+    assert result["wolf_alive"] == 0
+    assert result["village_alive"] == 2
+    assert result["result"] == "VILLAGE_WIN"

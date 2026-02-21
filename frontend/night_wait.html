@@ -68,7 +68,7 @@
     <div class="log" id="log"></div>
   </div>
 
-  <script src="/frontend/js/night_common.js"></script>
+  <script src="/frontend/js/night_common.js?v=20260221"></script>
   <script>
     const qs = new URLSearchParams(location.search);
     const gameId = qs.get("game_id");
@@ -154,7 +154,9 @@
         goMorningBtn.disabled = !isHost;
         goMorningBtn.title = isHost ? "" : "司会のみ実行できます";
         hostStatusEl.textContent = isHost
-          ? `夜行動の進捗：人狼 ${actions.wolves_done}/${actions.wolves_total}・占い師 ${actions.seer_done}/${actions.seer_total}・騎士 ${actions.knight_done}/${actions.knight_total}（全完了: ${actions.all_done ? "はい" : "いいえ"}）`
+          ? (window.JinrouNight?.formatNightProgress
+              ? window.JinrouNight.formatNightProgress(actions)
+              : `夜行動の進捗：${(actions.wolves_done||0)+(actions.seer_done||0)+(actions.knight_done||0)}/${(actions.wolves_total||0)+(actions.seer_total||0)+(actions.knight_total||0)}（全完了: ${actions.all_done ? "はい" : "いいえ"}）`)
           : "";
 
         if (st === "NIGHT") {

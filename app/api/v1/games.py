@@ -550,7 +550,9 @@ def _judge_game_result(game_id: str, db: Session) -> dict:
         .all()
     )
 
-    wolf_count = sum(1 for m in alive_members if (m.team or "").upper() == "WOLF")
+    # 勝敗判定の「狼人数」は実狼（WEREWOLF）のみを数える。
+    # MADMAN は狼陣営(team=WOLF)だが、頭数には含めない。
+    wolf_count = sum(1 for m in alive_members if (m.role_type or "").upper() == "WEREWOLF")
     village_count = len(alive_members) - wolf_count
     # 役職未割り当て状態（team=None 等）では勝敗確定させない
     pending_assignment = any(
@@ -1183,7 +1185,9 @@ def resolve_day_simple(
     """
     - 現在の `day_no` の投票を集計
     - 最多得票者を 1 人処刑（`alive = False`）
-    - 同票ならランダムに 1 人を選ぶ
+    - 同票時の挙動:
+        - 通常投票で同率1位が2人以上なら決選投票(RUNOFF)へ移行
+        - 決選投票でも同率ならランダムに1人を処刑
     - 昼の処刑後に **勝敗判定（judge_game_result）** を実施
         - 判定結果が `VILLAGE_WIN` / `WOLF_WIN` の場合  
             - `Game.status = "FINISHED"`  
@@ -1231,6 +1235,33 @@ def resolve_day_simple(
 
     max_votes = max(int(r.vote_count) for r in rows)
     candidates = [r for r in rows if int(r.vote_count) == max_votes]
+    is_runoff_round = _RUNOFF_STATE.get(game_id, {}).get("day_no") == day_no
+
+    # 通常投票で同率1位が複数なら、まずは決選投票へ
+    if len(candidates) >= 2 and not is_runoff_round:
+        runoff_candidate_ids = [r.target_member_id for r in candidates]
+        _RUNOFF_STATE[game_id] = {
+            "day_no": day_no,
+            "candidate_ids": runoff_candidate_ids,
+        }
+        game.vote_round = int(getattr(game, "vote_round", 0) or 0) + 1
+        db.add(game)
+        # 再投票を必須にするため、当日分の投票を一旦クリア
+        db.query(DayVote).filter(
+            DayVote.game_id == game_id,
+            DayVote.day_no == day_no,
+        ).delete(synchronize_session=False)
+        db.commit()
+        db.refresh(game)
+        return {
+            "game_id": game.id,
+            "day_no": day_no,
+            "status": "RUNOFF",
+            "candidate_ids": runoff_candidate_ids,
+            "vote_round": int(getattr(game, "vote_round", 0) or 0),
+        }
+
+    # 決選投票で同数の場合はランダム決着
     chosen = random.choice(candidates)
 
     victim = db.get(GameMember, chosen.target_member_id)
@@ -1240,6 +1271,7 @@ def resolve_day_simple(
     # 決選状態があれば解除
     if _RUNOFF_STATE.get(game_id, {}).get("day_no") == day_no:
         _RUNOFF_STATE.pop(game_id, None)
+    game.vote_round = 0
 
     # 昼の処刑反映
     victim.alive = False

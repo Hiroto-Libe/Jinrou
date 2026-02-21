@@ -135,10 +135,12 @@
     listRooms: () => fetch(`/api/rooms`),
     listGameMembers: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}/members`),
     getGame: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}`),
+    judgeGame: (gameId) => fetch(`/api/games/${encodeURIComponent(gameId)}/judge`),
   };
 
   const qs = new URLSearchParams(location.search);
   const roomId = qs.get("room_id");
+  const forceWait = qs.get("force_wait") === "1";
 
   const LS_PREFIX = `jinrou_room_join_${roomId || "unknown"}_`;
   const LS = {
@@ -406,9 +408,20 @@
       return;
     }
     const waitingByStarted = hasStartedFlag && !startedRaw;
-    if (waitingByStarted || !status || status === "WAITING") {
+    const waitingStatus = status === "WAITING" || status === "ROLE_ASSIGN";
+    if (waitingByStarted || !status || waitingStatus) {
       log("司会がGameを開始するまで待機しています。");
       return;
+    }
+
+    // status が FINISHED でなくても、judge 側で勝敗確定済みの場合は旧ゲーム扱いにする
+    const judgeRes = await toJson(await API.judgeGame(state.gameId));
+    if (judgeRes.ok) {
+      const judge = String(judgeRes.data?.result || "").toUpperCase();
+      if (judge && judge !== "ONGOING") {
+        log("このゲームは終了しています。GMが次ゲームを作成するまで待機します。");
+        return;
+      }
     }
 
     setStatePill("開始済み（役職確認へ移動）");
@@ -562,6 +575,12 @@
   });
 
   (function boot(){
+    if (forceWait) {
+      // 前ゲームの game_id を保持したままだと即遷移し得るため、待機復帰時にクリア
+      state.gameId = "";
+      localStorage.removeItem(LS.gameId);
+    }
+
     renderMeta();
 
     if (!state.roomId) {

@@ -122,7 +122,7 @@
   </div>
 
   <!-- ★重要：外部JS読み込み（src付きscriptの中身は実行されないので分離する） -->
-  <script src="/frontend/js/night_common.js"></script>
+  <script src="/frontend/js/night_common.js?v=20260221"></script>
 
   <script>
     const qs = new URLSearchParams(location.search);
@@ -456,6 +456,12 @@
     async function resolveDay() {
       // 司会運用想定：処刑確定→夜へ
       try {
+        if (!me) me = await fetchMe();
+        if (!me?.player_id) {
+          log("プレイヤー情報を取得できていません。再読み込みしてください。", "error");
+          return;
+        }
+
         const g = await fetchGame();
         const st = String(g.status || "").toUpperCase();
         if (st !== "DAY_DISCUSSION") {
@@ -482,12 +488,20 @@
           return;
         }
 
-        log("処刑を確定しました。結果を確認してから夜へ進んでください。", "success");
+        if (data.status === "NIGHT") {
+          log("処刑を確定しました。結果を確認して『夜へ進む』を押してください。", "success");
+          await sync();
+          await showTally();
+          return;
+        }
 
-        // ★追加：処刑で勝敗確定するので最重要
-        await redirectIfFinished(gameId, playerId);
+        if (data.status === "VILLAGE_WIN" || data.status === "WOLF_WIN") {
+          log("処刑で勝敗が確定しました。結果画面へ移動します。", "success");
+          jump("result.html");
+          return;
+        }
 
-        // resolve_day_simple が NIGHT に進めるので、結果確認後に手動で夜へ進む
+        log("処刑を確定しました。", "success");
         await sync();
         await showTally();
       } catch (e) {

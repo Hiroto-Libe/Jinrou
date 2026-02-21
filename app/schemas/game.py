@@ -34,6 +34,7 @@ class GameOut(BaseModel):
     id: str
     room_id: str
     status: str
+    started: bool = False
     curr_day: int
     curr_night: int
     last_executed_member_id: Optional[str] = None

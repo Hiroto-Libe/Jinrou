@@ -69,7 +69,7 @@
     <div id="members" class="members"></div>
   </div>
 
-  <script src="/frontend/js/night_common.js"></script>
+  <script src="/frontend/js/night_common.js?v=20260221"></script>
   <script>
     const qs = new URLSearchParams(location.search);
     const gameId = qs.get("game_id");
@@ -184,11 +184,13 @@
           hostBoxEl.style.display = "";
           if (st === "NIGHT") {
             const actions = await fetchNightActionsStatus();
-            hostStatusEl.textContent =
-              `夜行動の進捗：人狼 ${actions.wolves_done}/${actions.wolves_total}` +
-              `・占い師 ${actions.seer_done}/${actions.seer_total}` +
-              `・騎士 ${actions.knight_done}/${actions.knight_total}` +
-              `（全完了: ${actions.all_done ? "はい" : "いいえ"}）`;
+            if (window.JinrouNight?.formatNightProgress) {
+              hostStatusEl.textContent = window.JinrouNight.formatNightProgress(actions);
+            } else {
+              const done = (actions.wolves_done || 0) + (actions.seer_done || 0) + (actions.knight_done || 0);
+              const total = (actions.wolves_total || 0) + (actions.seer_total || 0) + (actions.knight_total || 0);
+              hostStatusEl.textContent = `夜行動の進捗：${done}/${total}（全完了: ${actions.all_done ? "はい" : "いいえ"}）`;
+            }
             // 司会は死亡していても進行可能（未完了でも実行できる）
             hostResolveNightBtn.disabled = false;
             hostResolveNightBtn.title = actions.all_done ? "" : "未完了でも実行できます（強制）";
