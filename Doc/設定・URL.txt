@@ -1,0 +1,12 @@
+
+cd /Users/itohiroto/Documents/GitHub/Jinrou
+source .venv313/bin/activate
+
+1. APIサーバ（必須）
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+2. HTMLサーバ（使う場合のみ）
+python3 -m http.server 5500 --bind 0.0.0.0
+
+
+
